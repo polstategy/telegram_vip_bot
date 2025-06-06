@@ -1,4 +1,4 @@
-# main.py — ربات تلگرام Polling + وب‌سرور خیلی ساده با aiohttp برای Render
+# main.py — ربات تلگرام Polling + وب‌سرور aiohttp (مشابه ورژن قبلی، با رفع خطای loop)
 # -------------------------------------------------------------
 import logging
 import json
@@ -39,16 +39,16 @@ except ValueError:
     logging.error("متغیر محیطی CHANNEL_ID معتبر نیست یا تعریف نشده!")
     exit(1)
 
-CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
+CHANNEL_USERNAME     = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 CHANNEL_INVITE_STATIC = os.environ.get(
     "CHANNEL_INVITE_STATIC", "https://t.me/+QYggjf71z9lmODVl"
 )
-SUPPORT_ID = os.environ.get("SUPPORT_ID", "@your_support_id")
-GOOGLE_SHEET_URL = os.environ.get(
+SUPPORT_ID          = os.environ.get("SUPPORT_ID", "@your_support_id")
+GOOGLE_SHEET_URL    = os.environ.get(
     "GOOGLE_SHEET_URL",
     "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
 )
-TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
+TWELVE_API_KEY      = os.environ.get("TWELVE_API_KEY", "")
 if not TWELVE_API_KEY:
     logging.warning(
         "متغیر محیطی TWELVE_API_KEY تنظیم نشده است؛ احتمالا تحلیل بازار کار نخواهد کرد."
@@ -56,7 +56,7 @@ if not TWELVE_API_KEY:
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
-MAX_LINKS_PER_DAY = 5
+MAX_LINKS_PER_DAY   = 5
 ALERT_INTERVAL_SECONDS = 300  # هر ۵ دقیقه یکبار چک هشدار
 
 # -------------------------------------------------------------
@@ -72,11 +72,9 @@ def load_data():
             return json.load(f)
     return {}
 
-
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
 
 users_data = load_data()
 
@@ -91,22 +89,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
     )
 
-
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
     user_id = str(update.effective_user.id)
     phone = contact.phone_number
 
-    # اگر شماره با +98 یا 0098 آمده باشد، آن را به 0 تبدیل می‌کنیم:
+    # اگر شماره با +98 یا 0098 شروع شده باشد، آن را به 0 تبدیل می‌کنیم
     if phone.startswith("+98"):
         phone = "0" + phone[3:]
     elif phone.startswith("0098"):
         phone = "0" + phone[4:]
 
     first_name = update.effective_user.first_name or ""
-    last_name = update.effective_user.last_name or ""
+    last_name  = update.effective_user.last_name or ""
 
-    # ثبت اولیه در Google Sheet (doPost با action=register)
+    # ثبت اولیه در Google Sheet (POST با action=register)
     try:
         payload = {
             "action": "register",
@@ -124,16 +121,15 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "name": first_name,
         "family": last_name,
         "registered_at": datetime.utcnow().isoformat(),
-        "expire_date": "",  # بعد از چک اشتراک پر می‌شود
-        "links": {},   # دفعات درخواست لینک در هر روز
-        "alerts": [],  # هشدارهای ارسال‌شده برای جلوگیری از تکرار
-        "watch_assets": [],  # دارایی‌ها و دوره‌های انتخابی برای هشدار
+        "expire_date": "",    # بعد از بررسی اشتراک پر می‌شود
+        "links": {},          # دفعات درخواست لینک در هر روز
+        "alerts": [],         # هشدارهای ارسال‌شده (کلیدهای سطح) برای جلوگیری از تکرار
+        "watch_assets": [],   # دارایی‌ها و دوره‌ها برای هشدار لحظه‌ای
     }
     save_data(users_data)
 
     # نمایش منوی اصلی
     await show_main_menu(update, context)
-
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -145,7 +141,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "از منوی زیر یکی را انتخاب کنید:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
-
 
 # —————————————————————————————————————————————————————————————————————
 # بخش سوم: مدیریت اشتراک و تاریخ انقضا
@@ -178,7 +173,6 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ شما تا به حال اشتراکی تهیه نکرده‌اید.")
 
-
 # —————————————————————————————————————————————————————————————————————
 # بخش چهارم: ساخت لینک موقت ۱۰ دقیقه‌ای برای ورود به کانال VIP
 # —————————————————————————————————————————————————————————————————————
@@ -190,7 +184,6 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ ابتدا احراز هویت کنید (/start).")
         return
 
-    # چک انقضای اشتراک
     exp_date_str = user.get("expire_date", "")
     if not exp_date_str:
         await update.message.reply_text("⚠️ شما اشتراک فعالی ندارید.")
@@ -208,7 +201,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ سقف درخواست لینک در روز تمام شده است.")
         return
 
-    # ایجاد لینک موقت با expire_date و member_limit=1
+    # ایجاد لینک موقت
     try:
         res = await context.bot.create_chat_invite_link(
             chat_id=CHANNEL_ID,
@@ -235,9 +228,8 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز.\n"
     )
 
-
 # —————————————————————————————————————————————————————————————————————
-# بخش پنجم: تحلیل بازار و منوی انتخاب دارایی
+# بخش پنجم: تحلیل بازار (انس طلا و سایر دارایی‌ها) + منوی انتخاب دارایی
 # —————————————————————————————————————————————————————————————————————
 
 ASSETS = {
@@ -257,7 +249,6 @@ PERIODS = {
     "شش‌ماهه": "semiannual",
 }
 
-
 async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
         [InlineKeyboardButton(label, callback_data=f"period|{period}")]
@@ -268,7 +259,6 @@ async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "لطفاً دوره زمانی مورد نظر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(kb),
     )
-
 
 async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -285,7 +275,6 @@ async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         "لطفاً دارایی مورد نظر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(kb),
     )
-
 
 async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -327,12 +316,10 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             save_data(users_data)
 
-
 async def analysis_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await analysis_menu(update, context)
-
 
 # —————————————————————————————————————————————————————————————————————
 # بخش ششم: دریافت داده‌های دارایی (TwelveData)
@@ -407,7 +394,6 @@ async def get_asset_data(symbol: str, period: str):
         "D": D,
     }
 
-
 async def get_current_price(symbol: str):
     url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_API_KEY}"
     try:
@@ -415,7 +401,6 @@ async def get_current_price(symbol: str):
         return float(resp.get("price", 0))
     except:
         return None
-
 
 # —————————————————————————————————————————————————————————————————————
 # بخش هفتم: هشدار لحظه‌ای قیمت برای تمام کاربران فعال
@@ -428,9 +413,9 @@ async def check_alerts(app):
         if "watch_assets" not in user:
             continue
 
-        # اگر اشتراک منقضی شده، کاربر را از کانال حذف کن
         exp_str = user.get("expire_date", "")
         if not exp_str or datetime.utcnow().date() > datetime.fromisoformat(exp_str).date():
+            # حذف کاربر از کانال در صورت منقضی شدن اشتراک
             try:
                 await app.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
                 await app.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
@@ -480,7 +465,6 @@ async def check_alerts(app):
 
         save_data(users_data)
 
-
 # —————————————————————————————————————————————————————————————————————
 # بخش هشتم: هندلر پیام‌های متنی منو
 # —————————————————————————————————————————————————————————————————————
@@ -500,17 +484,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
-
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💳 برای خرید اشتراک لطفاً با پشتیبانی تماس بگیرید.\n"
         f"📞 آیدی پشتیبانی: {SUPPORT_ID}"
     )
 
-
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👨‍💻 برای پشتیبانی لطفاً به آیدی زیر پیام دهید:\n{SUPPORT_ID}")
-
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data_cb = update.callback_query.data
@@ -523,14 +504,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     else:
         await update.callback_query.answer()
 
-
 # —————————————————————————————————————————————————————————————————————
 # بخش نهم: وب‌سرور خیلی ساده با aiohttp (برای Render)
 # —————————————————————————————————————————————————————————————————————
 
 async def handle_root(request):
     return web.Response(text="Bot is running")
-
 
 async def run_webserver():
     """
@@ -545,36 +524,27 @@ async def run_webserver():
     await site.start()
     logging.info(f"🚀 Web server listening on port {port}")
 
-
 # —————————————————————————————————————————————————————————————————————
-# بخش دهم: تابع main — راه‌اندازی ربات + وب‌سرور aiohttp
+# بخش دهم: تعریف main_async (غیر مسدودکننده) برای راه‌اندازی وب‌سرور و Polling
 # —————————————————————————————————————————————————————————————————————
 
-async def main():
+async def main_async():
     logging.basicConfig(level=logging.INFO)
     logging.info("🚀 Bot is starting...")
 
-    # ابتدا وب‌سرور را راه‌اندازی کن (در پس‌زمینه)
+    # ۱) استارت وب‌سرور در پس‌زمینه
     asyncio.create_task(run_webserver())
 
-    # سپس ربات را بساز و Polling را شروع کن
+    # २) ساختن ربات و افزودن هندلرها
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # ثبت هندلرها
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(callback_query_handler))
 
-    # افزودن JobQueue (اگر خواستید از آن استفاده کنید)
-    # برای استفاده از JobQueue باید در requirements.txt بنویسید:
-    # python-telegram-bot[job-queue]==20.7
-    # سپس Render را Redeploy کنید و خطای JobQueue برطرف می‌شود.
-    # اما از آنجا که ما خودمان حلقهٔ alert_loop داریم، نیازی به JobQueue نیست.
-
-    # حلقهٔ هشدار لحظه‌ای را نیز با asyncio اجرا می‌کنیم:
+    # ۳) شروع حلقهٔ هشدار قیمت در پس‌زمینه
     async def alert_loop():
-        await asyncio.sleep(10)  # تا ۱۰ ثانیه اول صبر کند
+        await asyncio.sleep(10)  # صبر اولیه برای اطمینان از بالا آمدن ربات
         while True:
             try:
                 await check_alerts(app)
@@ -584,9 +554,15 @@ async def main():
 
     asyncio.create_task(alert_loop())
 
-    # اجرا به‌صورت Polling
+    # ۴) اجرای Polling ربات (این تابع تا زمانی که Ctrl+C یا SIGTERM بیاید، منتظر می‌ماند)
     await app.run_polling()
 
+# —————————————————————————————————————————————————————————————————————
+# نقطهٔ ورود (بدون استفاده از asyncio.run تا از خطای «event loop already running» جلوگیری شود)
+# —————————————————————————————————————————————————————————————————————
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    # main_async را در حلقه به عنوان یک تسک اجرا می‌کنیم و سپس حلقه را دائماً نگه می‌داریم
+    loop.create_task(main_async())
+    loop.run_forever()
