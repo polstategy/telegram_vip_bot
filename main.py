@@ -1,4 +1,4 @@
-# main.py — ربات تلگرام Polling + وب‌سرور aiohttp (مشابه ورژن قبلی، با رفع خطای loop)
+# main.py — ربات تلگرام Polling + وب‌سرور aiohttp (رفع کامل خطای event loop)
 # -------------------------------------------------------------
 import logging
 import json
@@ -39,16 +39,16 @@ except ValueError:
     logging.error("متغیر محیطی CHANNEL_ID معتبر نیست یا تعریف نشده!")
     exit(1)
 
-CHANNEL_USERNAME     = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
+CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 CHANNEL_INVITE_STATIC = os.environ.get(
     "CHANNEL_INVITE_STATIC", "https://t.me/+QYggjf71z9lmODVl"
 )
-SUPPORT_ID          = os.environ.get("SUPPORT_ID", "@your_support_id")
-GOOGLE_SHEET_URL    = os.environ.get(
+SUPPORT_ID = os.environ.get("SUPPORT_ID", "@your_support_id")
+GOOGLE_SHEET_URL = os.environ.get(
     "GOOGLE_SHEET_URL",
     "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
 )
-TWELVE_API_KEY      = os.environ.get("TWELVE_API_KEY", "")
+TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
 if not TWELVE_API_KEY:
     logging.warning(
         "متغیر محیطی TWELVE_API_KEY تنظیم نشده است؛ احتمالا تحلیل بازار کار نخواهد کرد."
@@ -56,7 +56,7 @@ if not TWELVE_API_KEY:
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
-MAX_LINKS_PER_DAY   = 5
+MAX_LINKS_PER_DAY = 5
 ALERT_INTERVAL_SECONDS = 300  # هر ۵ دقیقه یکبار چک هشدار
 
 # -------------------------------------------------------------
@@ -94,7 +94,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     phone = contact.phone_number
 
-    # اگر شماره با +98 یا 0098 شروع شده باشد، آن را به 0 تبدیل می‌کنیم
+    # اگر شماره با +98 یا 0098 آمده باشد، آن را به 0 تبدیل می‌کنیم:
     if phone.startswith("+98"):
         phone = "0" + phone[3:]
     elif phone.startswith("0098"):
@@ -515,9 +515,9 @@ async def run_webserver():
     """
     وب‌سرور سبک aiohttp که روی پورتی که Render اختصاص می‌دهد گوش می‌دهد.
     """
-    app = web.Application()
-    app.router.add_get("/", handle_root)
-    runner = web.AppRunner(app)
+    app_http = web.Application()
+    app_http.router.add_get("/", handle_root)
+    runner = web.AppRunner(app_http)
     await runner.setup()
     port = int(os.environ.get("PORT", "8000"))
     site = web.TCPSite(runner, "0.0.0.0", port)
@@ -525,26 +525,31 @@ async def run_webserver():
     logging.info(f"🚀 Web server listening on port {port}")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش دهم: تعریف main_async (غیر مسدودکننده) برای راه‌اندازی وب‌سرور و Polling
+# بخش دهم: تعریف main_async (غیر مسدودکننده) برای راه‌اندازی وب‌سرور و ربات
 # —————————————————————————————————————————————————————————————————————
 
 async def main_async():
     logging.basicConfig(level=logging.INFO)
     logging.info("🚀 Bot is starting...")
 
-    # ۱) استارت وب‌سرور در پس‌زمینه
+    # ۱) استارت وب‌سرور aiohttp در پس‌زمینه
     asyncio.create_task(run_webserver())
 
-    # २) ساختن ربات و افزودن هندلرها
+    # ۲) ساخت ربات و افزودن هندلرها
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(callback_query_handler))
 
-    # ۳) شروع حلقهٔ هشدار قیمت در پس‌زمینه
+    # مقداردهی اولیه و اجرا (بدون بستن حلقه)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    # ۳) حلقهٔ هشدار قیمت (در پس‌زمینه)
     async def alert_loop():
-        await asyncio.sleep(10)  # صبر اولیه برای اطمینان از بالا آمدن ربات
+        await asyncio.sleep(10)  # صبر اولیه برای بالا آمدن ربات
         while True:
             try:
                 await check_alerts(app)
@@ -554,15 +559,15 @@ async def main_async():
 
     asyncio.create_task(alert_loop())
 
-    # ۴) اجرای Polling ربات (این تابع تا زمانی که Ctrl+C یا SIGTERM بیاید، منتظر می‌ماند)
-    await app.run_polling()
+    # ۴) نگه داشتن ترد ربات و وب‌سرور تا زمانی که SIGTERM بیاید
+    #    با این کار حلقهٔ asyncio بسته نمی‌شود و همه چیز زنده می‌ماند.
+    await asyncio.Event().wait()
 
 # —————————————————————————————————————————————————————————————————————
-# نقطهٔ ورود (بدون استفاده از asyncio.run تا از خطای «event loop already running» جلوگیری شود)
+# نقطهٔ ورود (استفاده از یک حلقهٔ واحد asyncio)
 # —————————————————————————————————————————————————————————————————————
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    # main_async را در حلقه به عنوان یک تسک اجرا می‌کنیم و سپس حلقه را دائماً نگه می‌داریم
     loop.create_task(main_async())
     loop.run_forever()
