@@ -16,12 +16,14 @@
 # -------------------------------------------------------------
 
 
+
 import logging
 import json
 import os
+import asyncio
 from datetime import datetime, timedelta
-import requests
 
+import requests
 from telegram import (
     Update,
     KeyboardButton,
@@ -38,40 +40,36 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# -------------------------------------------------------------
-# ==== تنظیمات اصلی ====
+# ==== تنظیمات اصلی (خواندن از Environment Variables) ====
 
-# 1) توکن ربات تلگرام (از BotFather دریافت کنید)
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+if not BOT_TOKEN:
+    logging.error("متغیر محیطی BOT_TOKEN تنظیم نشده است!")
+    exit(1)
 
-# 2) آیدی عددی کانال VIP (برای حذف خودکار اعضا)
-#    برای بدست آوردن آیدی عددی از ربات @userinfobot استفاده کنید.
-CHANNEL_ID = -1001234567890
+# CHANNEL_ID باید به صورت عددی (-100…) باشد
+try:
+    CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
+except ValueError:
+    logging.error("متغیر محیطی CHANNEL_ID معتبر نیست یا تنظیم نشده است!")
+    exit(1)
 
-# 3) یوزرنیم کانال VIP (فقط برای نمایش لینک ثابت اگر بخواهید)
-CHANNEL_USERNAME = "@your_channel_username"
+CHANNEL_USERNAME     = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
+CHANNEL_INVITE_STATIC = os.environ.get("CHANNEL_INVITE_STATIC", "https://t.me/+QYggjf71z9lmODVl")
+SUPPORT_ID          = os.environ.get("SUPPORT_ID", "@your_support_id")
+GOOGLE_SHEET_URL    = os.environ.get(
+    "GOOGLE_SHEET_URL",
+    "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+)
+TWELVE_API_KEY      = os.environ.get("TWELVE_API_KEY", "")
+if not TWELVE_API_KEY:
+    logging.warning("متغیر محیطی TWELVE_API_KEY تنظیم نشده است؛ احتمالاً تحلیل بازار کار نخواهد کرد.")
 
-# 4) لینک ثابت دعوت (برای نمایش در منوی خرید اشتراک یا راهنما)
-CHANNEL_INVITE_STATIC = "https://t.me/+QYggjf71z9lmODVl"
-
-# 5) آیدی پشتیبانی (برای نمایش در منوی پشتیبانی)
-SUPPORT_ID = "@your_support_id"
-
-# 6) آدرس Google Apps Script Web App برای ذخیره و خواندن اشتراک:
-GOOGLE_SHEET_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
-
-# 7) کلید API برای دریافت داده‌های قیمت از TwelveData
-TWELVE_API_KEY = "YOUR_TWELVE_DATA_API_KEY"
-
-# 8) فایل محلی برای ذخیره‌سازی اطلاعات کاربران و لینک‌های موقت
 DATA_FILE = "user_data.json"
+LINK_EXPIRE_MINUTES = 10
+MAX_LINKS_PER_DAY   = 5
+ALERT_INTERVAL_SECONDS = 300
 
-# 9) تنظیمات لینک موقت کانال
-LINK_EXPIRE_MINUTES = 10   # مدت اعتبار لینک (دقیقه)
-MAX_LINKS_PER_DAY = 5      # حداکثر تعداد لینک درخواست‌شده در هر روز
-
-# 10) تنظیمات هشدار قیمت
-ALERT_INTERVAL_SECONDS = 300  # هر ۵ دقیقه یکبار قیمت و سطوح را چک کن
 
 # -------------------------------------------------------------
 
