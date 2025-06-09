@@ -203,7 +203,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = await sync_user_data(user_id, user_data)
     
     # نمایش منوی اصلی
-     await show_main_menu(update.message, context, user_data)
+    await show_main_menu(update.message, context, user_data)
 
 async def show_main_menu(message, context: ContextTypes.DEFAULT_TYPE, user_data):
     """نمایش منوی اصلی بر اساس سطح دسترسی کاربر"""
