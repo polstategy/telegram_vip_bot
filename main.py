@@ -725,8 +725,6 @@ async def run_webserver():
 async def health_check(request):
     return web.Response(text="OK", status=200)
 
-# در تابع run_webserver
-app_http.router.add_get("/health", health_check)
 
 # —————————————————————————————————————————————————————————————————————
 # بخش دهم: تعریف main_async (غیر مسدودکننده) برای راه‌اندازی وب‌سرور و ربات
