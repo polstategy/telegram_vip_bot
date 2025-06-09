@@ -971,7 +971,7 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
     
-   async def main_async():
+async def main_async():
     # شروع ربات
     await app.initialize()
     await app.start()
