@@ -571,3 +571,40 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(main_async())
     loop.run_forever()
+
+
+
+# === 🆕 تغییرات جدید ===
+
+# 1. متغیر محیطی جدید کانال CIP
+CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
+
+# 2. تابع جدید برای عضویت در کانال CIP
+async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    if not user or not user.get("CIP"):
+        await update.message.reply_text("⚠️ شما تا به حال اشتراکی تهیه نکرده‌اید.")
+        return
+    try:
+        res = await context.bot.create_chat_invite_link(
+            chat_id=CIP_CHANNEL_ID,
+            expire_date=int((datetime.utcnow() + timedelta(minutes=LINK_EXPIRE_MINUTES)).timestamp()),
+            member_limit=1,
+        )
+        await update.message.reply_text(
+            f"📎 لینک CIP (۱۰ دقیقه اعتبار):\n{res.invite_link}\n\n"
+            "✅ لطفا از لینک بالا برای ورود استفاده کنید."
+        )
+    except Exception as e:
+        logging.error(f"خطا در CIP: {e}")
+        await update.message.reply_text("⚠️ خطا در ایجاد لینک CIP.")
+
+# 3. در show_main_menu اضافه شود:
+# (این تابع باید با منطق بررسی user['Hotline'] و user['CIP'] بروزرسانی شود، قبلاً در سند توضیح داده شد.)
+
+# 4. در message_handler اضافه شود:
+# elif text == "🌐 کانال CIP":
+#     await join_cip_channel(update, context)
+# elif text == "📰 اخبار اقتصادی فارسی":
+#     await update.message.reply_text("📰 منابع: https://www.fxstreet.com/fa | https://www.ibena.ir")
