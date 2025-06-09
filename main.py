@@ -67,18 +67,25 @@ def load_data():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except Exception as e:
+            logging.error(f"خطا در بارگیری فایل داده‌ها: {e}")
             return {}
     return {}
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"خطا در ذخیره فایل داده‌ها: {e}")
 
 users_data = load_data()
 
 def normalize_phone(phone):
     """نرمال‌سازی شماره تلفن"""
+    if not phone:
+        return ""
+        
     phone = re.sub(r'\D', '', phone)  # حذف همه غیر ارقام
     if phone.startswith('98'):
         phone = '0' + phone[2:]
@@ -92,7 +99,7 @@ async def update_user_in_sheet(user_data):
     """به‌روزرسانی کاربر در Google Sheet"""
     try:
         payload = {
-            "action": "update_user",
+            "action": "register",  # تغییر به register برای ثبت اولیه
             "phone": user_data["phone"],
             "name": user_data.get("name", ""),
             "days": user_data.get("subscription_days", 0),
@@ -101,7 +108,9 @@ async def update_user_in_sheet(user_data):
             "CIP": "T" if user_data.get("CIP", False) else "F",
             "Hotline": "T" if user_data.get("Hotline", False) else "F"
         }
+        logging.info(f"ارسال داده به گوگل شیت: {payload}")
         response = requests.post(GOOGLE_SHEET_URL, json=payload, timeout=30)
+        logging.info(f"پاسخ گوگل شیت: {response.status_code} - {response.text}")
         return response.status_code == 200
     except Exception as e:
         logging.error(f"خطا در به‌روزرسانی Google Sheet: {e}")
@@ -111,9 +120,14 @@ async def get_user_from_sheet(phone):
     """دریافت اطلاعات کاربر از Google Sheet"""
     try:
         phone = normalize_phone(phone)
-        response = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=30)
+        url = f"{GOOGLE_SHEET_URL}?phone={phone}"
+        logging.info(f"دریافت اطلاعات از گوگل شیت: {url}")
+        response = requests.get(url, timeout=30)
         if response.status_code == 200:
+            logging.info(f"داده دریافتی از گوگل شیت: {response.text}")
             return response.json()
+        else:
+            logging.error(f"خطا در دریافت از گوگل شیت: {response.status_code}")
     except Exception as e:
         logging.error(f"خطا در دریافت اطلاعات از Google Sheet: {e}")
     return None
@@ -132,10 +146,14 @@ async def sync_user_data(user_id, user_data):
         
         # محاسبه days_left
         if user_data["subscription_start"]:
-            start_date = datetime.strptime(user_data["subscription_start"], "%Y-%m-%d").date()
-            today = datetime.utcnow().date()
-            days_passed = (today - start_date).days
-            user_data["days_left"] = max(0, user_data["subscription_days"] - days_passed)
+            try:
+                start_date = datetime.strptime(user_data["subscription_start"], "%Y-%m-%d").date()
+                today = datetime.utcnow().date()
+                days_passed = (today - start_date).days
+                user_data["days_left"] = max(0, user_data["subscription_days"] - days_passed)
+            except Exception as e:
+                logging.error(f"خطا در محاسبه days_left: {e}")
+                user_data["days_left"] = 0
         else:
             user_data["days_left"] = 0
             
@@ -242,8 +260,11 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         expire_date = "نامشخص"
         if user.get("subscription_start"):
-            start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
-            expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
+            try:
+                start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
+                expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
+            except:
+                pass
         
         message = (
             f"✅ اشتراک شما فعال است\n"
@@ -626,6 +647,8 @@ async def check_alerts(app):
 # —————————————————————————————————————————————————————————————————————
 
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # فقط کاربران مجاز می‌توانند از پنل ادمین استفاده کنند
+    # در اینجا می‌توانید چک کنید که کاربر ادمین است یا خیر
     await update.message.reply_text(
         "🔐 لطفاً رمز عبور ادمین را وارد کنید:",
         reply_markup=ReplyKeyboardRemove()
@@ -652,6 +675,10 @@ async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not users_data:
+        await update.message.reply_text("❌ هیچ کاربری ثبت نشده است.")
+        return ADMIN_ACTION
+        
     message = "📋 لیست کاربران:\n\n"
     for user_id, data in users_data.items():
         phone = data.get("phone", "نامشخص")
@@ -668,7 +695,9 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"───────────────────\n"
         )
     
-    await update.message.reply_text(message[:4000])  # محدودیت طول پیام
+    # ارسال پیام به صورت چند قسمتی اگر طولانی باشد
+    for i in range(0, len(message), 4000):
+        await update.message.reply_text(message[i:i+4000])
 
 async def edit_subscription_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -942,7 +971,7 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
     
-async def main_async():
+   async def main_async():
     # شروع ربات
     await app.initialize()
     await app.start()
