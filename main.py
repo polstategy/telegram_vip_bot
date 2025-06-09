@@ -140,7 +140,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # نمایش منوی اصلی
     await show_main_menu(update, context)
 
-# تابع جدید برای به‌روزرسانی اطلاعات اشتراک از Google Sheet
+# تابع بهبود یافته برای به‌روزرسانی اطلاعات اشتراک از Google Sheet
 async def update_subscription_from_sheet(user_id):
     user = users_data.get(user_id)
     if not user:
@@ -148,7 +148,7 @@ async def update_subscription_from_sheet(user_id):
         
     phone = user["phone"]
     try:
-        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=10)
+        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=15)
         info = resp.json()
     except Exception as e:
         logging.error(f"خطا در بررسی اشتراک: {e}")
@@ -164,7 +164,13 @@ async def update_subscription_from_sheet(user_id):
         user["Hotline"] = info.get("Hotline", "F") == "T"
         save_data(users_data)
         return True
-    return False
+    else:
+        # اگر اشتراک پیدا نشد، وضعیت را ریست می‌کنیم
+        user["expire_date"] = ""
+        user["CIP"] = False
+        user["Hotline"] = False
+        save_data(users_data)
+        return True
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -192,7 +198,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
     
     # ردیف سوم: تحلیل بازار و اخبار اقتصادی
-    keyboard.append(["📊 تحلیل بازار", "📰 اخبار اقتصادی فارسی"])
+    keyboard.append(["📊 تحلیل بازار", "📰 اخبار اقتصادی فارکس"])
     
     await update.message.reply_text(
         "از منوی زیر یکی را انتخاب کنید:",
@@ -219,20 +225,25 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user.get("expire_date"):
-        exp_date = datetime.fromisoformat(user["expire_date"])
-        days_left = (exp_date.date() - datetime.utcnow().date()).days
+        exp_date = datetime.fromisoformat(user["expire_date"]).date()
+        today = datetime.utcnow().date()
+        days_left = (exp_date - today).days
         
+        if days_left <= 0:
+            await update.message.reply_text("⚠️ اشتراک شما منقضی شده است.")
+            return
+            
         # نمایش نوع اشتراک
-        subscription_type = ""
+        subscription_type = []
         if user.get("CIP", False):
-            subscription_type += "CIP "
+            subscription_type.append("CIP")
         if user.get("Hotline", False):
-            subscription_type += "Hotline"
+            subscription_type.append("Hotline")
         
         if subscription_type:
             await update.message.reply_text(
                 f"✅ اشتراک شما فعال است.\n"
-                f"🔹 نوع اشتراک: {subscription_type}\n"
+                f"🔹 نوع اشتراک: {', '.join(subscription_type)}\n"
                 f"⏳ {days_left} روز باقی مانده تا {user['expire_date']}."
             )
         else:
@@ -265,13 +276,14 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ اشتراک شما فعال نیست.")
         return
 
-    exp_date = datetime.fromisoformat(exp_date_str)
-    if datetime.utcnow().date() > exp_date.date():
+    exp_date = datetime.fromisoformat(exp_date_str).date()
+    today = datetime.utcnow().date()
+    if today > exp_date:
         await update.message.reply_text("⚠️ اشتراک شما منقضی شده است.")
         return
 
     # محدودیت 5 لینک در روز
-    today_str = datetime.utcnow().date().isoformat()
+    today_str = today.isoformat()
     links_count = user["links"].get(today_str, 0)
     if links_count >= MAX_LINKS_PER_DAY:
         await update.message.reply_text("⚠️ سقف درخواست لینک در روز تمام شده است.")
@@ -304,7 +316,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز.\n"
     )
 
-# تابع جدید برای عضویت در کانال CIP
+# تابع برای عضویت در کانال CIP
 async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
@@ -326,13 +338,14 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ اشتراک شما فعال نیست.")
         return
 
-    exp_date = datetime.fromisoformat(exp_date_str)
-    if datetime.utcnow().date() > exp_date.date():
+    exp_date = datetime.fromisoformat(exp_date_str).date()
+    today = datetime.utcnow().date()
+    if today > exp_date:
         await update.message.reply_text("⚠️ اشتراک شما منقضی شده است.")
         return
 
     # محدودیت 5 لینک در روز
-    today_str = datetime.utcnow().date().isoformat()
+    today_str = today.isoformat()
     links_count = user["links"].get(today_str, 0)
     if links_count >= MAX_LINKS_PER_DAY:
         await update.message.reply_text("⚠️ سقف درخواست لینک در روز تمام شده است.")
@@ -495,9 +508,10 @@ async def get_asset_data(symbol: str, period: str):
         f"apikey={TWELVE_API_KEY}"
     )
     try:
-        resp = requests.get(url, timeout=10).json()
+        resp = requests.get(url, timeout=15).json()
         candles = resp.get("values", [])
-    except:
+    except Exception as e:
+        logging.error(f"خطا در دریافت داده‌های دارایی: {e}")
         return None
 
     if not candles:
@@ -645,21 +659,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await support(update, context)
     elif text == "📊 تحلیل بازار":
         await analysis_menu(update, context)
-    elif text == "📰 اخبار اقتصادی فارسی":
+    elif text == "📰 اخبار اقتصادی فارکس":
         await economic_news(update, context)
     else:
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
-# تابع جدید برای اخبار اقتصادی
+# تابع جدید برای اخبار اقتصادی فارکس
 async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     news_sources = [
-        "📰 منابع خبری اقتصادی فارسی:",
-        "• خبرگزاری فارس: https://www.farsnews.ir/economy",
-        "• خبرگزاری تسنیم: https://www.tasnimnews.com/fa/economy",
-        "• دنیای اقتصاد: https://donya-e-eqtesad.com",
-        "• اقتصاد آنلاین: https://www.eghtesadonline.com",
-        "• بورس نیوز: https://www.boursenews.ir",
-        "• شبکه اطلاع‌رسانی طلا و ارز: https://www.tgju.org"
+        "📰 اخبار و تقویم اقتصادی فارکس:",
+        "• Forex Factory (تقویم اقتصادی): https://www.forexfactory.com/",
+        "• Investing.com: https://www.investing.com/economic-calendar/",
+        "• DailyFX: https://www.dailyfx.com/economic-calendar",
+        "• FXStreet: https://www.fxstreet.com/economic-calendar",
+        "• Babypips: https://www.babypips.com/economic-calendar",
+        "• خبرگزاری فارس (بخش اقتصاد): https://www.farsnews.ir/economy",
+        "• بورس نیوز (اخبار فارکس): https://www.boursenews.ir/tag/فارکس",
     ]
     
     await update.message.reply_text("\n".join(news_sources))
