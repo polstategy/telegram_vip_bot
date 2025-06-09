@@ -148,12 +148,13 @@ async def update_subscription_from_sheet(user_id):
         
     phone = user["phone"]
     try:
-        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=15)
+        # افزایش timeout به 30 ثانیه
+        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=30)
         info = resp.json()
     except Exception as e:
         logging.error(f"خطا در بررسی اشتراک: {e}")
         return False
-
+        
     if info.get("status") == "found":
         days_left = int(info.get("days_left", 0))
         expire_date = (datetime.utcnow().date() + timedelta(days=days_left)).isoformat()
@@ -712,12 +713,20 @@ async def run_webserver():
     """
     app_http = web.Application()
     app_http.router.add_get("/", handle_root)
+    app_http.router.add_get("/health", health_check)  # اضافه کردن سلامت‌سنج
     runner = web.AppRunner(app_http)
     await runner.setup()
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "10000"))  # پورت پیش‌فرض 10000
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     logging.info(f"🚀 Web server listening on port {port}")
+
+# بعد از تابع handle_root
+async def health_check(request):
+    return web.Response(text="OK", status=200)
+
+# در تابع run_webserver
+app_http.router.add_get("/health", health_check)
 
 # —————————————————————————————————————————————————————————————————————
 # بخش دهم: تعریف main_async (غیر مسدودکننده) برای راه‌اندازی وب‌سرور و ربات
