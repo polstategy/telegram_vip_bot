@@ -1,4 +1,4 @@
-# main.py — ربات تلگرام با پنل ادمین و مدیریت اشتراک
+# main.py — ربات تلگرام Polling + وب‌سرور aiohttp + پنل ادمین
 # -------------------------------------------------------------
 import logging
 import json
@@ -33,7 +33,6 @@ from aiohttp import web
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")  # رمز عبور پیشفرض ادمین
 
-# تنظیمات کانال‌ها
 try:
     CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
     CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
@@ -49,11 +48,10 @@ GOOGLE_SHEET_URL = os.environ.get(
 )
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
 
-# تنظیمات فایل داده‌ها
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
-ALERT_INTERVAL_SECONDS = 300
+ALERT_INTERVAL_SECONDS = 300  # هر ۵ دقیقه یکبار چک هشدار
 
 # مراحل گفتگو برای پنل ادمین
 ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
@@ -78,10 +76,6 @@ def save_data(data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 users_data = load_data()
-
-# —————————————————————————————————————————————————————————————————————
-# بخش دوم: ارتباط با Google Sheet
-# —————————————————————————————————————————————————————————————————————
 
 def normalize_phone(phone):
     """نرمال‌سازی شماره تلفن"""
@@ -155,20 +149,30 @@ async def sync_user_data(user_id, user_data):
     return user_data
 
 # —————————————————————————————————————————————————————————————————————
-# بخش سوم: احراز هویت و منوی اصلی
+# بخش دوم: احراز هویت و منوی اصلی
 # —————————————————————————————————————————————————————————————————————
+
 def build_main_menu_keyboard(user_data):
     """تابع کمکی برای ساخت کیبورد منوی اصلی"""
     keyboard = []
+    
+    # ردیف اول: اشتراک من
     keyboard.append(["📅 اشتراک من"])
+    
+    # ردیف دوم: دسترسی‌ها
     if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
         keyboard.append(["🔑 ورود به کانال"])
     if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
         keyboard.append(["🌐 کانال CIP"])
+    
+    # ردیف سوم: تحلیل بازار (فقط برای Hotline فعال)
     if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
         keyboard.append(["📊 تحلیل بازار"])
+    
+    # ردیف چهارم: سایر گزینه‌ها
     keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
     keyboard.append(["📰 اخبار اقتصادی فارکس"])
+    
     return keyboard
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -208,32 +212,15 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(message, context: ContextTypes.DEFAULT_TYPE, user_data):
     """نمایش منوی اصلی بر اساس سطح دسترسی کاربر"""
     keyboard = build_main_menu_keyboard(user_data)
-	
-    # ردیف اول: اشتراک من
-    keyboard.append(["📅 اشتراک من"])
-    
-    # ردیف دوم: دسترسی‌ها
-    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["🔑 ورود به کانال"])
-    if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["🌐 کانال CIP"])
-    
-    # ردیف سوم: تحلیل بازار (فقط برای Hotline فعال)
-    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["📊 تحلیل بازار"])
-    
-    # ردیف چهارم: سایر گزینه‌ها
-    keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
-    keyboard.append(["📰 اخبار اقتصادی فارکس"])
-    
-    await update.message.reply_text(
+    await message.reply_text(
         "از منوی زیر یکی را انتخاب کنید:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
 
 # —————————————————————————————————————————————————————————————————————
-# بخش چهارم: مدیریت اشتراک‌ها
+# بخش سوم: مدیریت اشتراک‌ها
 # —————————————————————————————————————————————————————————————————————
+
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = users_data.get(user_id)
@@ -270,8 +257,9 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # —————————————————————————————————————————————————————————————————————
-# بخش پنجم: دسترسی به کانال‌ها
+# بخش چهارم: دسترسی به کانال‌ها
 # —————————————————————————————————————————————————————————————————————
+
 async def generate_invite_link(context, chat_id, expire_minutes=10):
     """تولید لینک دعوت موقت"""
     try:
@@ -368,8 +356,9 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # —————————————————————————————————————————————————————————————————————
-# بخش ششم: تحلیل بازار (فقط برای کاربران Hotline)
+# بخش پنجم: تحلیل بازار (فقط برای کاربران Hotline)
 # —————————————————————————————————————————————————————————————————————
+
 ASSETS = {
     "انس طلا": "XAU/USD",
     "EURUSD": "EUR/USD",
@@ -409,53 +398,233 @@ async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    period_key = query.data.split('|')[1]
-    
-    # یافتن نام دوره
-    period_label = next((label for label, key in PERIODS.items() if key == period_key), period_key)
-    
-    # ساخت کیبورد برای انتخاب نماد
-    kb = []
-    for label, symbol in ASSETS.items():
-        kb.append([InlineKeyboardButton(label, callback_data=f"asset|{symbol}|{period_key}")])
+    _, period = query.data.split("|", 1)
+    context.user_data["analysis"] = {"period": period}
+
+    kb = [
+        [InlineKeyboardButton(label, callback_data=f"asset|{symbol}")]
+        for label, symbol in ASSETS.items()
+    ]
     kb.append([InlineKeyboardButton("بازگشت", callback_data="analysis|restart")])
-    
     await query.edit_message_text(
-        f"دوره: {period_label}\nلطفاً یک نماد را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(kb)
+        "لطفاً دارایی مورد نظر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(kb),
     )
 
 async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data.split('|')
-    symbol = data[1]
-    period_key = data[2]
+    _, symbol = query.data.split("|", 1)
+    context.user_data["analysis"]["symbol"] = symbol
+    period = context.user_data["analysis"]["period"]
+
+    asset_data = await get_asset_data(symbol, period)
+    if not asset_data:
+        await query.edit_message_text("⚠️ خطا در دریافت داده‌ها، لطفا بعداً تلاش کنید.")
+        return
+
+    # نمایش نام فارسی دارایی
+    asset_label = [k for k, v in ASSETS.items() if v == symbol][0]
     
-    # یافتن نام نماد و دوره
-    asset_name = next((name for name, sym in ASSETS.items() if sym == symbol), symbol)
-    period_label = next((label for label, key in PERIODS.items() if key == period_key), period_key)
+    # نمایش نام فارسی دوره
+    period_label = [k for k, v in PERIODS.items() if v == period][0]
     
-    await query.edit_message_text(
-        f"📊 تحلیل {asset_name} برای دوره {period_label}\n\n"
-        "این بخش در حال توسعه است و به زودی فعال خواهد شد."
-    )
+    msg = f"📊 تحلیل {asset_label} برای {period_label}:\n"
+    msg += f"High: {asset_data['H']:.2f}\nLow: {asset_data['L']:.2f}\nClose: {asset_data['C']:.2f}\n\n"
+    msg += f"M1: {asset_data['M1']:.2f}, M2: {asset_data['M2']:.2f}, M3: {asset_data['M3']:.2f}, M4: {asset_data['M4']:.2f}\n"
+    msg += f"M5: {asset_data['M5']:.2f}, M6: {asset_data['M6']:.2f}, M7: {asset_data['M7']:.2f}\n"
+    msg += f"Z1: {asset_data['Z1']:.2f}\nPip: {asset_data['pip']:.4f}\n\n"
+    msg += "مقاومت‌ها (U1–U5): " + ", ".join(f"{u:.2f}" for u in asset_data["U"][:5]) + "\n"
+    msg += "حمایت‌ها (D1–D5): " + ", ".join(f"{d:.2f}" for d in asset_data["D"][:5]) + "\n\n"
+    msg += "🔔 هشدار لحظه‌ای فعال شد. اگر قیمت به سطوح برخورد کند، به شما اطلاع داده می‌شود."
+
+    await query.edit_message_text(msg)
+
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    if user is not None:
+        watch_list = user.setdefault("watch_assets", [])
+        exists = any(
+            (w["symbol"] == symbol and w["period"] == period) for w in watch_list
+        )
+        if not exists:
+            watch_list.append(
+                {
+                    "symbol": symbol,
+                    "period": period,
+                    "last_processed": datetime.utcnow().isoformat(),
+                }
+            )
+            save_data(users_data)
 
 async def analysis_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(update.effective_user.id)
-    user = users_data.get(user_id)
+    await analysis_menu(update, context)
+
+async def get_asset_data(symbol: str, period: str):
+    now = datetime.utcnow()
     
-    if not user:
-        await query.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
-        return
-    
-    await show_main_menu(query.message, context, user)
+    # تعیین محدوده زمانی بر اساس انتخاب کاربر
+    if period == "1w":
+        days = 7
+    elif period == "1m":
+        days = 30
+    elif period == "3m":
+        days = 90
+    elif period == "6m":
+        days = 180
+    else:
+        days = 7
+        
+    start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_date = now.strftime("%Y-%m-%d")
+
+    url = (
+        "https://api.twelvedata.com/time_series?"
+        f"symbol={symbol}&"
+        "interval=1day&"
+        f"start_date={start_date}&"
+        f"end_date={end_date}&"
+        f"apikey={TWELVE_API_KEY}"
+    )
+    try:
+        resp = requests.get(url, timeout=15).json()
+        candles = resp.get("values", [])
+    except Exception as e:
+        logging.error(f"خطا در دریافت داده‌های دارایی: {e}")
+        return None
+
+    if not candles:
+        return None
+
+    # تبدیل داده‌ها به فرمت عددی
+    highs = []
+    lows = []
+    closes = []
+    for c in candles:
+        try:
+            highs.append(float(c["high"]))
+            lows.append(float(c["low"]))
+            closes.append(float(c["close"]))
+        except (KeyError, ValueError):
+            continue
+
+    if not highs:
+        return None
+
+    H = max(highs)
+    L = min(lows)
+    C = closes[-1] if closes else (H + L) / 2
+
+    # محاسبات سطوح
+    M1 = (H + L) / 2
+    M2 = (H + M1) / 2
+    M3 = (L + M1) / 2
+    M4 = (H + M2) / 2
+    M5 = (M2 + M1) / 2
+    M6 = (M1 + M3) / 2
+    M7 = (M3 + L) / 2
+    Z1 = (H + L + C) / 3
+    pip = abs(H - M4)
+
+    # محاسبه سطوح مقاومت و حمایت
+    U = [H + pip * (i + 1) for i in range(30)]
+    D = [L - pip * (i + 1) for i in range(30)]
+
+    return {
+        "H": H,
+        "L": L,
+        "C": C,
+        "M1": M1,
+        "M2": M2,
+        "M3": M3,
+        "M4": M4,
+        "M5": M5,
+        "M6": M6,
+        "M7": M7,
+        "Z1": Z1,
+        "pip": pip,
+        "U": U,
+        "D": D,
+    }
+
+async def get_current_price(symbol: str):
+    url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_API_KEY}"
+    try:
+        resp = requests.get(url, timeout=10).json()
+        return float(resp.get("price", 0))
+    except:
+        return None
+
+# —————————————————————————————————————————————————————————————————————
+# بخش ششم: هشدار لحظه‌ای قیمت برای تمام کاربران فعال
+# —————————————————————————————————————————————————————————————————————
+
+async def check_alerts(app):
+    global users_data
+
+    for user_id, user in users_data.items():
+        if "watch_assets" not in user:
+            continue
+
+        if user.get("days_left", 0) <= 0:
+            # حذف کاربر از کانال در صورت منقضی شدن اشتراک
+            try:
+                await app.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
+                await app.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
+                await app.bot.ban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
+                await app.bot.unban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
+            except:
+                pass
+            continue
+
+        for wa in user["watch_assets"]:
+            symbol = wa["symbol"]
+            period = wa["period"]
+
+            asset_data = await get_asset_data(symbol, period)
+            if not asset_data:
+                continue
+            price = await get_current_price(symbol)
+            if price is None:
+                continue
+
+            pip = asset_data["pip"]
+            levels = [
+                asset_data["M1"],
+                asset_data["M2"],
+                asset_data["M3"],
+                asset_data["M4"],
+                asset_data["M5"],
+                asset_data["M6"],
+                asset_data["M7"],
+                asset_data["Z1"],
+            ] + asset_data["U"] + asset_data["D"]
+
+            for lvl in levels:
+                key = f"{symbol}_{period}_{round(lvl, 2)}"
+                if key in user["alerts"]:
+                    continue
+                if abs(price - lvl) < pip / 10:
+                    try:
+                        await app.bot.send_message(
+                            chat_id=int(user_id),
+                            text=f"⚠️ قیمت {symbol} به سطح مهم {round(lvl, 2)} رسیده.\nقیمت فعلی: {price:.2f}",
+                        )
+                        user["alerts"].append(key)
+                        save_data(users_data)
+                    except Exception as e:
+                        logging.error(f"خطا در ارسال هشدار به {user_id}: {e}")
+
+            wa["last_processed"] = datetime.utcnow().isoformat()
+
+        save_data(users_data)
 
 # —————————————————————————————————————————————————————————————————————
 # بخش هفتم: پنل مدیریت ادمین
 # —————————————————————————————————————————————————————————————————————
+
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔐 لطفاً رمز عبور ادمین را وارد کنید:",
@@ -654,6 +823,7 @@ async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش هشتم: اخبار اقتصادی فارکس
 # —————————————————————————————————————————————————————————————————————
+
 async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     news_sources = [
         "📰 منابع خبری و تقویم اقتصادی فارکس:",
@@ -671,6 +841,7 @@ async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش نهم: سایر دستورات
 # —————————————————————————————————————————————————————————————————————
+
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💳 برای خرید اشتراک لطفاً با پشتیبانی تماس بگیرید.\n"
@@ -709,6 +880,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش دهم: وب‌سرور و راه‌اندازی اصلی
 # —————————————————————————————————————————————————————————————————————
+
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -774,6 +946,18 @@ async def main_async():
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
+
+    # حلقه هشدار قیمت
+    async def alert_loop():
+        await asyncio.sleep(10)  # صبر اولیه برای بالا آمدن ربات
+        while True:
+            try:
+                await check_alerts(app)
+            except Exception as e:
+                logging.error(f"خطا در حلقه هشدار قیمت: {e}")
+            await asyncio.sleep(ALERT_INTERVAL_SECONDS)
+
+    asyncio.create_task(alert_loop())
 
     # نگه داشتن ربات
     await asyncio.Event().wait()
