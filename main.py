@@ -376,6 +376,23 @@ PERIODS = {
     "سه ماه گذشته": "3m",
     "شش ماه گذشته": "6m",
 }
+async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    selected_period = query.data.split("|")[1]
+    context.user_data["selected_period"] = selected_period
+
+    kb = [
+        [InlineKeyboardButton(asset, callback_data=f"asset|{symbol}")]
+        for asset, symbol in ASSETS.items()
+    ]
+    kb.append([InlineKeyboardButton("🔙 بازگشت", callback_data="analysis|restart")])
+
+    await query.edit_message_text(
+        text="لطفاً دارایی مورد نظر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
 async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -718,7 +735,9 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-    
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+
     # شروع ربات
     await app.initialize()
     await app.start()
