@@ -157,6 +157,19 @@ async def sync_user_data(user_id, user_data):
 # —————————————————————————————————————————————————————————————————————
 # بخش سوم: احراز هویت و منوی اصلی
 # —————————————————————————————————————————————————————————————————————
+def build_main_menu_keyboard(user_data):
+    """تابع کمکی برای ساخت کیبورد منوی اصلی"""
+    keyboard = []
+    keyboard.append(["📅 اشتراک من"])
+    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["🔑 ورود به کانال"])
+    if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["🌐 کانال CIP"])
+    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["📊 تحلیل بازار"])
+    keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
+    keyboard.append(["📰 اخبار اقتصادی فارکس"])
+    return keyboard
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[KeyboardButton("تایید و احراز هویت", request_contact=True)]]
@@ -190,30 +203,12 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = await sync_user_data(user_id, user_data)
     
     # نمایش منوی اصلی
-    await show_main_menu(update, context, user_data)
+    await show_main_menu(update.message, context, user_data)
 
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_data):
+async def show_main_menu(message, context: ContextTypes.DEFAULT_TYPE, user_data):
     """نمایش منوی اصلی بر اساس سطح دسترسی کاربر"""
-    keyboard = []
-    
-    # ردیف اول: اشتراک من
-    keyboard.append(["📅 اشتراک من"])
-    
-    # ردیف دوم: دسترسی‌ها
-    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["🔑 ورود به کانال"])
-    if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["🌐 کانال CIP"])
-    
-    # ردیف سوم: تحلیل بازار (فقط برای Hotline فعال)
-    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
-        keyboard.append(["📊 تحلیل بازار"])
-    
-    # ردیف چهارم: سایر گزینه‌ها
-    keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
-    keyboard.append(["📰 اخبار اقتصادی فارکس"])
-    
-    await update.message.reply_text(
+    keyboard = build_main_menu_keyboard(user_data)
+    await message.reply_text(
         "از منوی زیر یکی را انتخاب کنید:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
@@ -221,7 +216,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, use
 # —————————————————————————————————————————————————————————————————————
 # بخش چهارم: مدیریت اشتراک‌ها
 # —————————————————————————————————————————————————————————————————————
-
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = users_data.get(user_id)
@@ -242,7 +236,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription_type.append("Hotline")
         
         expire_date = "نامشخص"
-        if user.get("subscription_start"):
+        if user.get("subscription_start")):
             start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
             expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
         
@@ -260,7 +254,6 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش پنجم: دسترسی به کانال‌ها
 # —————————————————————————————————————————————————————————————————————
-
 async def generate_invite_link(context, chat_id, expire_minutes=10):
     """تولید لینک دعوت موقت"""
     try:
@@ -359,7 +352,6 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش ششم: تحلیل بازار (فقط برای کاربران Hotline)
 # —————————————————————————————————————————————————————————————————————
-
 ASSETS = {
     "انس طلا": "XAU/USD",
     "EURUSD": "EUR/USD",
@@ -376,23 +368,6 @@ PERIODS = {
     "سه ماه گذشته": "3m",
     "شش ماه گذشته": "6m",
 }
-async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    selected_period = query.data.split("|")[1]
-    context.user_data["selected_period"] = selected_period
-
-    kb = [
-        [InlineKeyboardButton(asset, callback_data=f"asset|{symbol}")]
-        for asset, symbol in ASSETS.items()
-    ]
-    kb.append([InlineKeyboardButton("🔙 بازگشت", callback_data="analysis|restart")])
-
-    await query.edit_message_text(
-        text="لطفاً دارایی مورد نظر را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
 
 async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -413,12 +388,56 @@ async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(kb),
     )
 
-# بقیه توابع تحلیل بازار مانند قبل...
+async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    period_key = query.data.split('|')[1]
+    
+    # یافتن نام دوره
+    period_label = next((label for label, key in PERIODS.items() if key == period_key), period_key)
+    
+    # ساخت کیبورد برای انتخاب نماد
+    kb = []
+    for label, symbol in ASSETS.items():
+        kb.append([InlineKeyboardButton(label, callback_data=f"asset|{symbol}|{period_key}")])
+    kb.append([InlineKeyboardButton("بازگشت", callback_data="analysis|restart")])
+    
+    await query.edit_message_text(
+        f"دوره: {period_label}\nلطفاً یک نماد را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
+async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data.split('|')
+    symbol = data[1]
+    period_key = data[2]
+    
+    # یافتن نام نماد و دوره
+    asset_name = next((name for name, sym in ASSETS.items() if sym == symbol), symbol)
+    period_label = next((label for label, key in PERIODS.items() if key == period_key), period_key)
+    
+    await query.edit_message_text(
+        f"📊 تحلیل {asset_name} برای دوره {period_label}\n\n"
+        "این بخش در حال توسعه است و به زودی فعال خواهد شد."
+    )
+
+async def analysis_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    
+    if not user:
+        await query.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
+        return
+    
+    await show_main_menu(query.message, context, user)
 
 # —————————————————————————————————————————————————————————————————————
 # بخش هفتم: پنل مدیریت ادمین
 # —————————————————————————————————————————————————————————————————————
-
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔐 لطفاً رمز عبور ادمین را وارد کنید:",
@@ -617,7 +636,6 @@ async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش هشتم: اخبار اقتصادی فارکس
 # —————————————————————————————————————————————————————————————————————
-
 async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     news_sources = [
         "📰 منابع خبری و تقویم اقتصادی فارکس:",
@@ -635,7 +653,6 @@ async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش نهم: سایر دستورات
 # —————————————————————————————————————————————————————————————————————
-
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💳 برای خرید اشتراک لطفاً با پشتیبانی تماس بگیرید.\n"
@@ -674,7 +691,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش دهم: وب‌سرور و راه‌اندازی اصلی
 # —————————————————————————————————————————————————————————————————————
-
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -731,13 +747,11 @@ async def main_async():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(admin_handler)
     
-    # تحلیل بازار (به صورت ساده شده)
+    # تحلیل بازار
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-
+    
     # شروع ربات
     await app.initialize()
     await app.start()
