@@ -203,12 +203,30 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = await sync_user_data(user_id, user_data)
     
     # نمایش منوی اصلی
-    await show_main_menu(update.message, context, user_data)
+     await show_main_menu(update.message, context, user_data)
 
 async def show_main_menu(message, context: ContextTypes.DEFAULT_TYPE, user_data):
     """نمایش منوی اصلی بر اساس سطح دسترسی کاربر"""
     keyboard = build_main_menu_keyboard(user_data)
-    await message.reply_text(
+	
+    # ردیف اول: اشتراک من
+    keyboard.append(["📅 اشتراک من"])
+    
+    # ردیف دوم: دسترسی‌ها
+    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["🔑 ورود به کانال"])
+    if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["🌐 کانال CIP"])
+    
+    # ردیف سوم: تحلیل بازار (فقط برای Hotline فعال)
+    if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
+        keyboard.append(["📊 تحلیل بازار"])
+    
+    # ردیف چهارم: سایر گزینه‌ها
+    keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
+    keyboard.append(["📰 اخبار اقتصادی فارکس"])
+    
+    await update.message.reply_text(
         "از منوی زیر یکی را انتخاب کنید:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
@@ -236,7 +254,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription_type.append("Hotline")
         
         expire_date = "نامشخص"
-        if user.get("subscription_start")):
+        if user.get("subscription_start"):
             start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
             expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
         
