@@ -39,6 +39,13 @@ except ValueError:
     logging.error("متغیر محیطی CHANNEL_ID معتبر نیست یا تعریف نشده!")
     exit(1)
 
+# اضافه شدن کانال CIP
+try:
+    CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
+except ValueError:
+    logging.error("متغیر محیطی CIP_CHANNEL_ID معتبر نیست یا تعریف نشده!")
+    exit(1)
+
 CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 CHANNEL_INVITE_STATIC = os.environ.get(
     "CHANNEL_INVITE_STATIC", "https://t.me/+QYggjf71z9lmODVl"
@@ -125,18 +132,68 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "links": {},          # دفعات درخواست لینک در هر روز
         "alerts": [],         # هشدارهای ارسال‌شده (کلیدهای سطح) برای جلوگیری از تکرار
         "watch_assets": [],   # دارایی‌ها و دوره‌ها برای هشدار لحظه‌ای
+        "CIP": False,         # اشتراک CIP - مقدار اولیه
+        "Hotline": False,     # اشتراک Hotline - مقدار اولیه
     }
     save_data(users_data)
 
     # نمایش منوی اصلی
     await show_main_menu(update, context)
 
+# تابع جدید برای به‌روزرسانی اطلاعات اشتراک از Google Sheet
+async def update_subscription_from_sheet(user_id):
+    user = users_data.get(user_id)
+    if not user:
+        return False
+        
+    phone = user["phone"]
+    try:
+        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=10)
+        info = resp.json()
+    except Exception as e:
+        logging.error(f"خطا در بررسی اشتراک: {e}")
+        return False
+
+    if info.get("status") == "found":
+        days_left = int(info.get("days_left", 0))
+        expire_date = (datetime.utcnow().date() + timedelta(days=days_left)).isoformat()
+        
+        # به‌روزرسانی اطلاعات اشتراک
+        user["expire_date"] = expire_date
+        user["CIP"] = info.get("CIP", "F") == "T"
+        user["Hotline"] = info.get("Hotline", "F") == "T"
+        save_data(users_data)
+        return True
+    return False
+
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["📅 اشتراک من", "🔑 ورود به کانال"],
-        ["💳 خرید اشتراک", "🛟 پشتیبانی"],
-        ["📊 تحلیل بازار"],
-    ]
+    user_id = str(update.effective_user.id)
+    
+    # به‌روزرسانی اطلاعات اشتراک از Google Sheet
+    await update_subscription_from_sheet(user_id)
+    
+    user = users_data.get(user_id)
+    if not user:
+        await update.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
+        return
+
+    # ساخت منوی پویا بر اساس نوع اشتراک
+    keyboard = []
+    
+    # ردیف اول: اشتراک من و گزینه‌های اشتراک
+    row1 = ["📅 اشتراک من"]
+    if user.get("Hotline", False):
+        row1.append("🔑 ورود به کانال")
+    if user.get("CIP", False):
+        row1.append("🌐 کانال CIP")
+    keyboard.append(row1)
+    
+    # ردیف دوم: خرید اشتراک و پشتیبانی
+    keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
+    
+    # ردیف سوم: تحلیل بازار و اخبار اقتصادی
+    keyboard.append(["📊 تحلیل بازار", "📰 اخبار اقتصادی فارسی"])
+    
     await update.message.reply_text(
         "از منوی زیر یکی را انتخاب کنید:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
@@ -148,45 +205,64 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    
+    # به‌روزرسانی اطلاعات اشتراک از Google Sheet
+    updated = await update_subscription_from_sheet(user_id)
+    
     user = users_data.get(user_id)
     if not user:
         await update.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
         return
 
-    phone = user["phone"]
-    try:
-        resp = requests.get(f"{GOOGLE_SHEET_URL}?phone={phone}", timeout=10)
-        info = resp.json()
-    except Exception as e:
-        logging.error(f"خطا در بررسی اشتراک: {e}")
+    if not updated:
         await update.message.reply_text("⚠️ خطا در بررسی اشتراک. لطفاً بعداً تلاش کنید.")
         return
 
-    if info.get("status") == "found":
-        days_left = int(info.get("days_left", 0))
-        expire_date = (datetime.utcnow().date() + timedelta(days=days_left)).isoformat()
-        user["expire_date"] = expire_date
-        save_data(users_data)
-        await update.message.reply_text(
-            f"✅ اشتراک شما فعال است.\n⏳ {days_left} روز باقی مانده تا {expire_date}."
-        )
+    if user.get("expire_date"):
+        exp_date = datetime.fromisoformat(user["expire_date"])
+        days_left = (exp_date.date() - datetime.utcnow().date()).days
+        
+        # نمایش نوع اشتراک
+        subscription_type = ""
+        if user.get("CIP", False):
+            subscription_type += "CIP "
+        if user.get("Hotline", False):
+            subscription_type += "Hotline"
+        
+        if subscription_type:
+            await update.message.reply_text(
+                f"✅ اشتراک شما فعال است.\n"
+                f"🔹 نوع اشتراک: {subscription_type}\n"
+                f"⏳ {days_left} روز باقی مانده تا {user['expire_date']}."
+            )
+        else:
+            await update.message.reply_text("⚠️ شما تا به حال اشتراکی تهیه نکرده‌اید.")
     else:
         await update.message.reply_text("⚠️ شما تا به حال اشتراکی تهیه نکرده‌اید.")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش چهارم: ساخت لینک موقت ۱۰ دقیقه‌ای برای ورود به کانال VIP
+# بخش چهارم: ساخت لینک موقت ۱۰ دقیقه‌ای برای ورود به کانال‌ها
 # —————————————————————————————————————————————————————————————————————
 
 async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    
+    # به‌روزرسانی اطلاعات اشتراک از Google Sheet
+    await update_subscription_from_sheet(user_id)
+    
     user = users_data.get(user_id)
     if not user:
         await update.message.reply_text("⚠️ ابتدا احراز هویت کنید (/start).")
         return
 
+    # بررسی اشتراک Hotline
+    if not user.get("Hotline", False):
+        await update.message.reply_text("⚠️ شما اشتراک Hotline ندارید.")
+        return
+
     exp_date_str = user.get("expire_date", "")
     if not exp_date_str:
-        await update.message.reply_text("⚠️ شما اشتراک فعالی ندارید.")
+        await update.message.reply_text("⚠️ اشتراک شما فعال نیست.")
         return
 
     exp_date = datetime.fromisoformat(exp_date_str)
@@ -223,8 +299,69 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ارسال لینک موقت به کاربر
     await update.message.reply_text(
-        f"📎 لینک عضویت (۱۰ دقیقه اعتبار):\n{invite_link}\n\n"
+        f"📎 لینک عضویت در کانال VIP (۱۰ دقیقه اعتبار):\n{invite_link}\n\n"
         "✅ لطفا از لینک بالا برای ورود به کانال VIP استفاده کنید.\n"
+        f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز.\n"
+    )
+
+# تابع جدید برای عضویت در کانال CIP
+async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    
+    # به‌روزرسانی اطلاعات اشتراک از Google Sheet
+    await update_subscription_from_sheet(user_id)
+    
+    user = users_data.get(user_id)
+    if not user:
+        await update.message.reply_text("⚠️ ابتدا احراز هویت کنید (/start).")
+        return
+
+    # بررسی اشتراک CIP
+    if not user.get("CIP", False):
+        await update.message.reply_text("⚠️ شما اشتراک CIP ندارید.")
+        return
+
+    exp_date_str = user.get("expire_date", "")
+    if not exp_date_str:
+        await update.message.reply_text("⚠️ اشتراک شما فعال نیست.")
+        return
+
+    exp_date = datetime.fromisoformat(exp_date_str)
+    if datetime.utcnow().date() > exp_date.date():
+        await update.message.reply_text("⚠️ اشتراک شما منقضی شده است.")
+        return
+
+    # محدودیت 5 لینک در روز
+    today_str = datetime.utcnow().date().isoformat()
+    links_count = user["links"].get(today_str, 0)
+    if links_count >= MAX_LINKS_PER_DAY:
+        await update.message.reply_text("⚠️ سقف درخواست لینک در روز تمام شده است.")
+        return
+
+    # ایجاد لینک موقت
+    try:
+        res = await context.bot.create_chat_invite_link(
+            chat_id=CIP_CHANNEL_ID,
+            expire_date=int((datetime.utcnow() + timedelta(minutes=LINK_EXPIRE_MINUTES)).timestamp()),
+            member_limit=1,
+        )
+        invite_link = res.invite_link
+    except Exception as e:
+        logging.error(f"خطا در ایجاد لینک دعوت CIP: {e}")
+        await update.message.reply_text("⚠️ در ایجاد لینک دعوت CIP خطایی رخ داد. لطفاً بعداً تلاش کنید.")
+        return
+
+    # ذخیره لینک و شمارش
+    user["links"][today_str] = links_count + 1
+    user.setdefault("last_link", {}).update(
+        {"link": invite_link, "timestamp": datetime.utcnow().isoformat()}
+    )
+    save_data(users_data)
+
+    # ارسال لینک موقت به کاربر
+    await update.message.reply_text(
+        f"📎 لینک عضویت در کانال CIP (۱۰ دقیقه اعتبار):\n{invite_link}\n\n"
+        "✅ لطفا از لینک بالا برای ورود به کانال CIP استفاده کنید.\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز.\n"
     )
 
@@ -243,10 +380,10 @@ ASSETS = {
 }
 
 PERIODS = {
-    "هفتگی": "weekly",
-    "ماهانه": "monthly",
-    "سه‌ماهه": "quarterly",
-    "شش‌ماهه": "semiannual",
+    "هفته گذشته": "1w",
+    "ماه گذشته": "1m",
+    "سه ماه گذشته": "3m",
+    "شش ماه گذشته": "6m",
 }
 
 async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -288,7 +425,13 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ خطا در دریافت داده‌ها، لطفا بعداً تلاش کنید.")
         return
 
-    msg = f"📊 تحلیل {symbol} برای دوره {period}:\n"
+    # نمایش نام فارسی دارایی
+    asset_label = [k for k, v in ASSETS.items() if v == symbol][0]
+    
+    # نمایش نام فارسی دوره
+    period_label = [k for k, v in PERIODS.items() if v == period][0]
+    
+    msg = f"📊 تحلیل {asset_label} برای {period_label}:\n"
     msg += f"High: {asset_data['H']:.2f}\nLow: {asset_data['L']:.2f}\nClose: {asset_data['C']:.2f}\n\n"
     msg += f"M1: {asset_data['M1']:.2f}, M2: {asset_data['M2']:.2f}, M3: {asset_data['M3']:.2f}, M4: {asset_data['M4']:.2f}\n"
     msg += f"M5: {asset_data['M5']:.2f}, M6: {asset_data['M6']:.2f}, M7: {asset_data['M7']:.2f}\n"
@@ -327,24 +470,28 @@ async def analysis_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_asset_data(symbol: str, period: str):
     now = datetime.utcnow()
-    if period == "weekly":
-        start = now - timedelta(days=7)
-    elif period == "monthly":
-        start = now - timedelta(days=30)
-    elif period == "quarterly":
-        start = now - timedelta(days=90)
-    elif period == "semiannual":
-        start = now - timedelta(days=180)
+    
+    # تعیین محدوده زمانی بر اساس انتخاب کاربر
+    if period == "1w":
+        days = 7
+    elif period == "1m":
+        days = 30
+    elif period == "3m":
+        days = 90
+    elif period == "6m":
+        days = 180
     else:
-        start = now - timedelta(days=7)
-    end = now
+        days = 7
+        
+    start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_date = now.strftime("%Y-%m-%d")
 
     url = (
         "https://api.twelvedata.com/time_series?"
         f"symbol={symbol}&"
         "interval=1day&"
-        f"start_date={start.date()}&"
-        f"end_date={end.date()}&"
+        f"start_date={start_date}&"
+        f"end_date={end_date}&"
         f"apikey={TWELVE_API_KEY}"
     )
     try:
@@ -356,14 +503,26 @@ async def get_asset_data(symbol: str, period: str):
     if not candles:
         return None
 
-    highs = [float(c["high"]) for c in candles]
-    lows = [float(c["low"]) for c in candles]
-    closes = [float(c["close"]) for c in candles]
+    # تبدیل داده‌ها به فرمت عددی
+    highs = []
+    lows = []
+    closes = []
+    for c in candles:
+        try:
+            highs.append(float(c["high"]))
+            lows.append(float(c["low"]))
+            closes.append(float(c["close"]))
+        except (KeyError, ValueError):
+            continue
+
+    if not highs:
+        return None
 
     H = max(highs)
     L = min(lows)
-    C = closes[-1]
+    C = closes[-1] if closes else (H + L) / 2
 
+    # محاسبات سطوح
     M1 = (H + L) / 2
     M2 = (H + M1) / 2
     M3 = (L + M1) / 2
@@ -374,6 +533,7 @@ async def get_asset_data(symbol: str, period: str):
     Z1 = (H + L + C) / 3
     pip = abs(H - M4)
 
+    # محاسبه سطوح مقاومت و حمایت
     U = [H + pip * (i + 1) for i in range(30)]
     D = [L - pip * (i + 1) for i in range(30)]
 
@@ -419,6 +579,8 @@ async def check_alerts(app):
             try:
                 await app.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
                 await app.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
+                await app.bot.ban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
+                await app.bot.unban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
             except:
                 pass
             continue
@@ -475,14 +637,32 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await my_subscription(update, context)
     elif text == "🔑 ورود به کانال":
         await join_channel(update, context)
+    elif text == "🌐 کانال CIP":
+        await join_cip_channel(update, context)
     elif text == "💳 خرید اشتراک":
         await buy_subscription(update, context)
     elif text == "🛟 پشتیبانی":
         await support(update, context)
     elif text == "📊 تحلیل بازار":
         await analysis_menu(update, context)
+    elif text == "📰 اخبار اقتصادی فارسی":
+        await economic_news(update, context)
     else:
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
+
+# تابع جدید برای اخبار اقتصادی
+async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    news_sources = [
+        "📰 منابع خبری اقتصادی فارسی:",
+        "• خبرگزاری فارس: https://www.farsnews.ir/economy",
+        "• خبرگزاری تسنیم: https://www.tasnimnews.com/fa/economy",
+        "• دنیای اقتصاد: https://donya-e-eqtesad.com",
+        "• اقتصاد آنلاین: https://www.eghtesadonline.com",
+        "• بورس نیوز: https://www.boursenews.ir",
+        "• شبکه اطلاع‌رسانی طلا و ارز: https://www.tgju.org"
+    ]
+    
+    await update.message.reply_text("\n".join(news_sources))
 
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -571,40 +751,3 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(main_async())
     loop.run_forever()
-
-
-
-# === 🆕 تغییرات جدید ===
-
-# 1. متغیر محیطی جدید کانال CIP
-CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
-
-# 2. تابع جدید برای عضویت در کانال CIP
-async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    user = users_data.get(user_id)
-    if not user or not user.get("CIP"):
-        await update.message.reply_text("⚠️ شما تا به حال اشتراکی تهیه نکرده‌اید.")
-        return
-    try:
-        res = await context.bot.create_chat_invite_link(
-            chat_id=CIP_CHANNEL_ID,
-            expire_date=int((datetime.utcnow() + timedelta(minutes=LINK_EXPIRE_MINUTES)).timestamp()),
-            member_limit=1,
-        )
-        await update.message.reply_text(
-            f"📎 لینک CIP (۱۰ دقیقه اعتبار):\n{res.invite_link}\n\n"
-            "✅ لطفا از لینک بالا برای ورود استفاده کنید."
-        )
-    except Exception as e:
-        logging.error(f"خطا در CIP: {e}")
-        await update.message.reply_text("⚠️ خطا در ایجاد لینک CIP.")
-
-# 3. در show_main_menu اضافه شود:
-# (این تابع باید با منطق بررسی user['Hotline'] و user['CIP'] بروزرسانی شود، قبلاً در سند توضیح داده شد.)
-
-# 4. در message_handler اضافه شود:
-# elif text == "🌐 کانال CIP":
-#     await join_cip_channel(update, context)
-# elif text == "📰 اخبار اقتصادی فارسی":
-#     await update.message.reply_text("📰 منابع: https://www.fxstreet.com/fa | https://www.ibena.ir")
