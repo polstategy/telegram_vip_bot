@@ -942,6 +942,7 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
     
+async def main_async():
     # شروع ربات
     await app.initialize()
     await app.start()
@@ -962,7 +963,6 @@ async def main_async():
     # نگه داشتن ربات
     await asyncio.Event().wait()
 
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main_async())
-    loop.run_forever()
+    asyncio.run(main_async())
