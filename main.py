@@ -25,33 +25,23 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler
 )
-
 from aiohttp import web
 
-# -------------------------------------------------------------
-# ==== تنظیمات اصلی ====
+# تنظیمات اصلی
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")  # رمز عبور پیشفرض ادمین
-
-try:
-    CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
-    CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
-except ValueError:
-    logging.error("خطا در ID کانال‌ها!")
-    exit(1)
-
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
+CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
 CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 SUPPORT_ID = os.environ.get("SUPPORT_ID", "@your_support_id")
-GOOGLE_SHEET_URL = os.environ.get(
-    "GOOGLE_SHEET_URL",
-    "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
-)
+GOOGLE_SHEET_URL = os.environ.get("GOOGLE_SHEET_URL", "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec")
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
+PORT = int(os.environ["PORT"])
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
-ALERT_INTERVAL_SECONDS = 300  # هر ۵ دقیقه یکبار چک هشدار
+ALERT_INTERVAL_SECONDS = 300
 
 # مراحل گفتگو برای پنل ادمین
 ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
@@ -910,6 +900,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # بخش دهم: وب‌سرور و راه‌اندازی اصلی
 # —————————————————————————————————————————————————————————————————————
 
+# وب‌سرور aiohttp
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -922,26 +913,30 @@ async def run_webserver():
     app_http.router.add_get("/health", health_check)
     runner = web.AppRunner(app_http)
     await runner.setup()
-    port = int(os.environ.get("PORT", "10000"))
-    site = web.TCPSite(runner, "0.0.0.0", port)
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logging.info(f"🚀 Web server listening on port {port}")
+    logging.info(f"🌐 Web server listening on port {PORT}")
 
-async def main_async():
+# اجرای اصلی
+async def main():
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO
     )
     logging.info("🚀 Starting bot...")
 
-    # راه‌اندازی وب‌سرور
     asyncio.create_task(run_webserver())
 
-    # تنظیم ربات تلگرام
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    # تنظیم handler برای پنل ادمین
-    admin_handler = ConversationHandler(
+
+    # اضافه کردن تمام هندلرهای ربات: /start، تحلیل، مدیریت، پیام‌ها و غیره
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("admin", admin_login)],
         states={
             ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
@@ -958,69 +953,12 @@ async def main_async():
             ]
         },
         fallbacks=[CommandHandler("admin", admin_login)]
-    )
-    
-    # اضافه کردن handlerها
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(admin_handler)
-    
-    # تحلیل بازار
-    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
-    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-    
-async def main_async():
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO
-    )
-    logging.info("🚀 Starting bot...")
+    ))
 
-    # راه‌اندازی وب‌سرور
-    asyncio.create_task(run_webserver())
-
-    # تنظیم ربات تلگرام
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # تنظیم handler برای پنل ادمین
-    admin_handler = ConversationHandler(
-        entry_points=[CommandHandler("admin", admin_login)],
-        states={
-            ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
-            ADMIN_ACTION: [
-                MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
-                MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
-                MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
-                MessageHandler(filters.Regex("^🔙 خروج$"), admin_logout),
-            ],
-            SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
-            EDIT_SUBSCRIPTION: [
-                MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
-            ]
-        },
-        fallbacks=[CommandHandler("admin", admin_login)]
-    )
-
-    # اضافه کردن handlerها
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(admin_handler)
-
-    # تحلیل بازار
-    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
-    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-
-    # شروع ربات
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
 
-    # حلقه هشدار قیمت
     async def alert_loop():
         await asyncio.sleep(10)
         while True:
@@ -1031,12 +969,7 @@ async def main_async():
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
 
     asyncio.create_task(alert_loop())
-
-    # نگه داشتن ربات
     await asyncio.Event().wait()
 
-
 if __name__ == "__main__":
-    asyncio.run(main_async())
-
-
+    asyncio.run(main())
