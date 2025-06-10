@@ -36,12 +36,13 @@ CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 SUPPORT_ID = os.environ.get("SUPPORT_ID", "@your_support_id")
 GOOGLE_SHEET_URL = os.environ.get("GOOGLE_SHEET_URL", "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec")
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
-PORT = int(os.environ["PORT"])
+PORT = int(os.environ.get("PORT", "10000"))
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
 ALERT_INTERVAL_SECONDS = 300
+
 
 # مراحل گفتگو برای پنل ادمین
 ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
@@ -901,6 +902,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 
 # وب‌سرور aiohttp
+# وب‌سرور aiohttp
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -973,3 +975,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
