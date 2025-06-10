@@ -971,6 +971,50 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
     
+async def main_async():
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO
+    )
+    logging.info("🚀 Starting bot...")
+
+    # راه‌اندازی وب‌سرور
+    asyncio.create_task(run_webserver())
+
+    # تنظیم ربات تلگرام
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # تنظیم handler برای پنل ادمین
+    admin_handler = ConversationHandler(
+        entry_points=[CommandHandler("admin", admin_login)],
+        states={
+            ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
+            ADMIN_ACTION: [
+                MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
+                MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
+                MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
+                MessageHandler(filters.Regex("^🔙 خروج$"), admin_logout),
+            ],
+            SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
+            EDIT_SUBSCRIPTION: [
+                MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
+            ]
+        },
+        fallbacks=[CommandHandler("admin", admin_login)]
+    )
+
+    # اضافه کردن handlerها
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(admin_handler)
+
+    # تحلیل بازار
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+
     # شروع ربات
     await app.initialize()
     await app.start()
@@ -978,7 +1022,7 @@ async def main_async():
 
     # حلقه هشدار قیمت
     async def alert_loop():
-        await asyncio.sleep(10)  # صبر اولیه برای بالا آمدن ربات
+        await asyncio.sleep(10)
         while True:
             try:
                 await check_alerts(app)
@@ -991,7 +1035,8 @@ async def main_async():
     # نگه داشتن ربات
     await asyncio.Event().wait()
 
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main_async())
-    loop.run_forever()
+    asyncio.run(main_async())
+
+
