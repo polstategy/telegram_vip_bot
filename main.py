@@ -907,9 +907,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش دهم: وب‌سرور و راه‌اندازی اصلی (اصلاح شده)
+# بخش دهم: وب‌سرور و راه‌اندازی اصلی
 # —————————————————————————————————————————————————————————————————————
-from aiohttp import web
 
 async def handle_root(request):
     return web.Response(text="Bot is running")
@@ -923,11 +922,10 @@ async def run_webserver():
     app_http.router.add_get("/health", health_check)
     runner = web.AppRunner(app_http)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))  # استفاده از متغیر محیطی PORT
+    port = int(os.environ.get("PORT", "10000"))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     logging.info(f"🚀 Web server listening on port {port}")
-    return app_http  # بازگرداندن نمونه برنامه
 
 async def main_async():
     logging.basicConfig(
@@ -937,37 +935,108 @@ async def main_async():
     logging.info("🚀 Starting bot...")
 
     # راه‌اندازی وب‌سرور
-    webserver_task = asyncio.create_task(run_webserver())
-    await asyncio.sleep(1)  # زمان برای راه‌اندازی سرور
+    asyncio.create_task(run_webserver())
 
     # تنظیم ربات تلگرام
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ... (بقیه کدهای تنظیم handlerها)
+    # تنظیم handler برای پنل ادمین
+    admin_handler = ConversationHandler(
+        entry_points=[CommandHandler("admin", admin_login)],
+        states={
+            ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
+            ADMIN_ACTION: [
+                MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
+                MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
+                MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
+                MessageHandler(filters.Regex("^🔙 خروج$"), admin_logout),
+            ],
+            SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
+            EDIT_SUBSCRIPTION: [
+                MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
+            ]
+        },
+        fallbacks=[CommandHandler("admin", admin_login)]
+    )
+    
+    # اضافه کردن handlerها
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(admin_handler)
+    
+    # تحلیل بازار
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+    
+async def main_async():
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO
+    )
+    logging.info("🚀 Starting bot...")
+
+    # راه‌اندازی وب‌سرور
+    asyncio.create_task(run_webserver())
+
+    # تنظیم ربات تلگرام
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # تنظیم handler برای پنل ادمین
+    admin_handler = ConversationHandler(
+        entry_points=[CommandHandler("admin", admin_login)],
+        states={
+            ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
+            ADMIN_ACTION: [
+                MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
+                MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
+                MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
+                MessageHandler(filters.Regex("^🔙 خروج$"), admin_logout),
+            ],
+            SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
+            EDIT_SUBSCRIPTION: [
+                MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
+            ]
+        },
+        fallbacks=[CommandHandler("admin", admin_login)]
+    )
+
+    # اضافه کردن handlerها
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(admin_handler)
+
+    # تحلیل بازار
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
 
     # شروع ربات
-    await application.initialize()
-    await application.start()
-    
-    if application.updater:
-        await application.updater.start_polling()
-    
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
     # حلقه هشدار قیمت
     async def alert_loop():
+        await asyncio.sleep(10)
         while True:
             try:
-                await check_alerts(application)
+                await check_alerts(app)
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار قیمت: {e}")
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
 
     asyncio.create_task(alert_loop())
 
-    # منتظر ماندن برای هر دو سرویس
-    await asyncio.gather(
-        webserver_task,
-        asyncio.Event().wait(),  # نگه داشتن برنامه
-    )
+    # نگه داشتن ربات
+    await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
+
