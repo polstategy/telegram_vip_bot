@@ -89,16 +89,21 @@ def normalize_phone(phone):
 async def update_user_in_sheet(user_data):
     """به‌روزرسانی کاربر در Google Sheet"""
     try:
-        payload = {
-            "action": "register",  # تغییر به register برای ثبت اولیه
-            "phone": user_data["phone"],
-            "name": user_data.get("name", ""),
-            "days": user_data.get("subscription_days", 0),
-            "start_date": user_data.get("subscription_start", ""),
-            "days_left": user_data.get("days_left", 0),
-            "CIP": "T" if user_data.get("CIP", False) else "F",
-            "Hotline": "T" if user_data.get("Hotline", False) else "F"
-        }
+        name = user_data.get("name", "")
+if not isinstance(name, str) or not name.strip():
+    name = "نامشخص"
+
+payload = {
+    "action": "register",
+    "phone": user_data["phone"],
+    "name": name,
+    "days": user_data.get("subscription_days", 0),
+    "start_date": user_data.get("subscription_start", ""),
+    "days_left": user_data.get("days_left", 0),
+    "CIP": "T" if user_data.get("CIP", False) else "F",
+    "Hotline": "T" if user_data.get("Hotline", False) else "F"
+}
+
         logging.info(f"ارسال داده به گوگل شیت: {payload}")
         response = requests.post(GOOGLE_SHEET_URL, json=payload, timeout=30)
         logging.info(f"پاسخ گوگل شیت: {response.status_code} - {response.text}")
@@ -195,7 +200,10 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
     user_id = str(update.effective_user.id)
     phone = normalize_phone(contact.phone_number)
-    full_name = f"{update.effective_user.first_name or ''} {update.effective_user.last_name or ''}".strip()
+    first_name = update.effective_user.first_name or ""
+    last_name = update.effective_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip() or "نامشخص"
+
 
     # ذخیره اولیه اطلاعات کاربر
     user_data = {
