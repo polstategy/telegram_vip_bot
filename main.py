@@ -43,7 +43,6 @@ LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
 ALERT_INTERVAL_SECONDS = 300
 
-
 # مراحل گفتگو برای پنل ادمین
 ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
 
@@ -154,6 +153,9 @@ async def sync_user_data(user_id, user_data):
     else:
         # اگر کاربر در گوگل شیت وجود ندارد، آن را اضافه کن
         await update_user_in_sheet(user_data)
+        # ذخیره محلی
+        users_data[user_id] = user_data
+        save_data(users_data)
     
     return user_data
 
@@ -214,6 +216,10 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # همگام‌سازی با گوگل شیت
     user_data = await sync_user_data(user_id, user_data)
+    
+    # ذخیره کاربر جدید در دیتا
+    users_data[user_id] = user_data
+    save_data(users_data)
     
     # نمایش منوی اصلی
     await show_main_menu(update.message, context, user_data)
@@ -634,12 +640,10 @@ async def check_alerts(app):
         save_data(users_data)
 
 # —————————————————————————————————————————————————————————————————————
-# بخش هفتم: پنل مدیریت ادمین
+# بخش هفتم: پنل مدیریت ادمین (اصلاح شده)
 # —————————————————————————————————————————————————————————————————————
 
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # فقط کاربران مجاز می‌توانند از پنل ادمین استفاده کنند
-    # در اینجا می‌توانید چک کنید که کاربر ادمین است یا خیر
     await update.message.reply_text(
         "🔐 لطفاً رمز عبور ادمین را وارد کنید:",
         reply_markup=ReplyKeyboardRemove()
@@ -649,7 +653,7 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_admin_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text
     if password == ADMIN_PASSWORD:
-        await show_admin_dashboard(update, context)  # <-- نمایش منو
+        await show_admin_dashboard(update, context)
         return ADMIN_ACTION
     else:
         await update.message.reply_text("❌ رمز عبور اشتباه است. لطفاً مجدداً تلاش کنید.")
@@ -753,28 +757,37 @@ async def handle_subscription_edit(update: Update, context: ContextTypes.DEFAULT
     elif action == "🔛 فعال‌سازی CIP":
         user["CIP"] = True
         await update_user_in_sheet(user)
+        users_data[user_id] = user
+        save_data(users_data)
         await update.message.reply_text("✅ دسترسی CIP فعال شد")
+        return await show_admin_dashboard(update, context)
     
     elif action == "📡 فعال‌سازی Hotline":
         user["Hotline"] = True
         await update_user_in_sheet(user)
+        users_data[user_id] = user
+        save_data(users_data)
         await update.message.reply_text("✅ دسترسی Hotline فعال شد")
+        return await show_admin_dashboard(update, context)
     
     elif action == "🔘 غیرفعال‌سازی CIP":
         user["CIP"] = False
         await update_user_in_sheet(user)
+        users_data[user_id] = user
+        save_data(users_data)
         await update.message.reply_text("❌ دسترسی CIP غیرفعال شد")
+        return await show_admin_dashboard(update, context)
     
     elif action == "📴 غیرفعال‌سازی Hotline":
         user["Hotline"] = False
         await update_user_in_sheet(user)
+        users_data[user_id] = user
+        save_data(users_data)
         await update.message.reply_text("❌ دسترسی Hotline غیرفعال شد")
+        return await show_admin_dashboard(update, context)
     
-    # به‌روزرسانی داده‌های محلی
-    users_data[user_id] = user
-    save_data(users_data)
-    
-    return await show_admin_dashboard(update, context)
+    elif action == "🔙 بازگشت":
+        return await show_admin_dashboard(update, context)
 
 async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     value = update.message.text
@@ -793,7 +806,18 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "add_days":
         try:
             days = int(value)
+            # اگر کاربر قبلاً اشتراک نداشته (تاریخ شروع ندارد) یا اشتراکش تمام شده، تاریخ شروع را امروز قرار بده
+            if not user.get("subscription_start") or user.get("days_left", 0) <= 0:
+                user["subscription_start"] = datetime.utcnow().date().isoformat()
+            
             user["subscription_days"] = max(0, user.get("subscription_days", 0) + days)
+            
+            # محاسبه days_left
+            start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
+            today = datetime.utcnow().date()
+            days_passed = (today - start_date).days
+            user["days_left"] = max(0, user["subscription_days"] - days_passed)
+            
             await update.message.reply_text(f"✅ {days} روز به اشتراک کاربر اضافه شد")
         except ValueError:
             await update.message.reply_text("❌ تعداد روز باید عدد باشد")
@@ -898,11 +922,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش دهم: وب‌سرور و راه‌اندازی اصلی
+# بخش دهم: وب‌سرور و راه‌اندازی اصلی (اصلاح شده)
 # —————————————————————————————————————————————————————————————————————
 
-# وب‌سرور aiohttp
-# وب‌سرور aiohttp
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -931,14 +953,16 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # اضافه کردن تمام هندلرهای ربات: /start، تحلیل، مدیریت، پیام‌ها و غیره
+    # اضافه کردن تمام هندلرهای ربات
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
-    app.add_handler(ConversationHandler(
+    
+    # تعریف ConversationHandler برای پنل ادمین (اصلاح شده)
+    admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_login)],
         states={
             ADMIN_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_password)],
@@ -955,7 +979,8 @@ async def main():
             ]
         },
         fallbacks=[CommandHandler("admin", admin_login)]
-    ))
+    )
+    app.add_handler(admin_conv_handler)
 
     await app.initialize()
     await app.start()
@@ -975,6 +1000,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
