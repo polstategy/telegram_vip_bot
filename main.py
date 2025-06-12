@@ -129,8 +129,8 @@ async def sync_user_data(user_id, user_data):
     
     if sheet_data and sheet_data.get("status") == "found":
         # به‌روزرسانی داده‌ها از گوگل شیت
-        user_data["CIP"] = sheet_data.get("CIP", "F") == "T"
-        user_data["Hotline"] = sheet_data.get("Hotline", "F") == "T"
+        user_data["CIP"] = bool(sheet_data.get("CIP", False))
+        user_data["Hotline"] = bool(sheet_data.get("Hotline", False))
         user_data["subscription_days"] = int(sheet_data.get("days", 0))
         user_data["subscription_start"] = sheet_data.get("start_date", "")
         
