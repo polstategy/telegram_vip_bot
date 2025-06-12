@@ -124,16 +124,22 @@ async def get_user_from_sheet(phone):
 
 async def sync_user_data(user_id, user_data):
     """همگام‌سازی داده‌های کاربر بین سیستم و Google Sheet"""
-    # همیشه اول از گوگل شیت اطلاعات را بگیر
     sheet_data = await get_user_from_sheet(user_data["phone"])
-    
+
     if sheet_data and sheet_data.get("status") == "found":
-        # به‌روزرسانی داده‌ها از گوگل شیت
+        # تبدیل مقادیر به boolean
         user_data["CIP"] = bool(sheet_data.get("CIP", False))
         user_data["Hotline"] = bool(sheet_data.get("Hotline", False))
-        user_data["subscription_days"] = int(sheet_data.get("days", 0))
+
+        # تعداد روز اشتراک
+        try:
+            user_data["subscription_days"] = int(sheet_data.get("days", 0))
+        except:
+            user_data["subscription_days"] = 0
+
+        # تاریخ شروع اشتراک
         user_data["subscription_start"] = sheet_data.get("start_date", "")
-        
+
         # محاسبه days_left
         if user_data["subscription_start"]:
             try:
@@ -146,18 +152,19 @@ async def sync_user_data(user_id, user_data):
                 user_data["days_left"] = 0
         else:
             user_data["days_left"] = 0
-            
-        # ذخیره محلی
-        users_data[user_id] = user_data
-        save_data(users_data)  # <-- ذخیره در فایل JSON
-    else:
-        # اگر کاربر در گوگل شیت وجود ندارد، آن را اضافه کن
-        await update_user_in_sheet(user_data)
+
         # ذخیره محلی
         users_data[user_id] = user_data
         save_data(users_data)
-    
+
+    else:
+        # اگر کاربر در گوگل شیت نبود → ثبت اولیه
+        await update_user_in_sheet(user_data)
+        users_data[user_id] = user_data
+        save_data(users_data)
+
     return user_data
+
 
 # —————————————————————————————————————————————————————————————————————
 # بخش دوم: احراز هویت و منوی اصلی
