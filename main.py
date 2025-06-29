@@ -288,9 +288,12 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generate_invite_link(context, chat_id, expire_minutes=10):
     """تولید لینک دعوت موقت"""
     try:
+        # محاسبه زمان انقضا به درستی
+        expire_timestamp = int((datetime.utcnow() + timedelta(minutes=expire_minutes)).timestamp())
+        
         res = await context.bot.create_chat_invite_link(
             chat_id=chat_id,
-            expire_date=int((datetime.utcnow() + timedelta(minutes=expire_minutes)).timestamp()),
+            expire_date=expire_timestamp,  # استفاده از تایمستامپ محاسبه شده
             member_limit=1,
         )
         return res.invite_link
