@@ -7,9 +7,6 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path="POLstrategy.env")
-
 import requests
 from telegram import (
     Update,
