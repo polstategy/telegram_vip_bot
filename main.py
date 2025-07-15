@@ -7,6 +7,9 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 
+from dotenv import load_dotenv
+load_dotenv(dotenv_path="POLstrategy.env")
+
 import requests
 from telegram import (
     Update,
@@ -265,7 +268,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription_type.append("Hotline")
         
         expire_date = "نامشخص"
-        if user.get("subscription_start"):
+        if user.get("subscription_start"]:
             try:
                 start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
                 expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
@@ -1009,7 +1012,8 @@ async def main():
     asyncio.create_task(run_webserver())
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+    
+    app.add_handler(admin_conv_handler, group=0)
     # اضافه کردن تمام هندلرهای ربات
     app.add_handler(CommandHandler("start", start), group=1)
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact), group=1)
@@ -1037,7 +1041,6 @@ async def main():
         },
         fallbacks=[CommandHandler("admin", admin_login)]
     )
-    app.add_handler(admin_conv_handler, group=0)
 
     await app.initialize()
     await app.start()
@@ -1051,7 +1054,7 @@ async def main():
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار قیمت: {e}")
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
-
+    
     async def subscription_alert_loop():
         await asyncio.sleep(30)
         while True:
@@ -1059,7 +1062,7 @@ async def main():
                 await check_subscription_alerts(app)
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار اشتراک: {e}")
-            await asyncio.sleep(10)  # هر ۶ ساعت یکبار اجرا شود
+            await asyncio.sleep(6 * 3600)  # هر ۶ ساعت یکبار اجرا شود
 
     asyncio.create_task(alert_loop())
     asyncio.create_task(subscription_alert_loop())
