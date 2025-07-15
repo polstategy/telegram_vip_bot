@@ -268,7 +268,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription_type.append("Hotline")
         
         expire_date = "نامشخص"
-        if user.get("subscription_start"]:
+        if user.get("subscription_start"):
             try:
                 start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
                 expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
