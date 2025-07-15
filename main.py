@@ -1011,12 +1011,12 @@ async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # اضافه کردن تمام هندلرهای ربات
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
-    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+    app.add_handler(CommandHandler("start", start), group=1)
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text), group=1)
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\\|\"), group=1)
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"), group=1)
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"), group=1)
     
     # تعریف ConversationHandler برای پنل ادمین (اصلاح شده)
     admin_conv_handler = ConversationHandler(
@@ -1037,7 +1037,7 @@ async def main():
         },
         fallbacks=[CommandHandler("admin", admin_login)]
     )
-    app.add_handler(admin_conv_handler)
+    app.add_handler(admin_conv_handler, group=0)
 
     await app.initialize()
     await app.start()
@@ -1051,7 +1051,7 @@ async def main():
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار قیمت: {e}")
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
-    
+
     async def subscription_alert_loop():
         await asyncio.sleep(30)
         while True:
