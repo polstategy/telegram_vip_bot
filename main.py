@@ -7,6 +7,9 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 
+from dotenv import load_dotenv
+load_dotenv(dotenv_path="POLstrategy.env")
+
 import requests
 from telegram import (
     Update,
@@ -42,6 +45,7 @@ DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
 ALERT_INTERVAL_SECONDS = 300
+SUBSCRIPTION_ALERT_DAYS = 3  # تعداد روزهای مانده به پایان اشتراک برای ارسال هشدار
 
 # مراحل گفتگو برای پنل ادمین
 ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
@@ -218,7 +222,8 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Hotline": False,
         "subscription_days": 0,
         "subscription_start": "",
-        "days_left": 0
+        "days_left": 0,
+        "last_alert_sent": None  # تاریخ آخرین هشدار ارسالی
     }
     
     # همگام‌سازی با گوگل شیت
@@ -263,7 +268,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription_type.append("Hotline")
         
         expire_date = "نامشخص"
-        if user.get("subscription_start"):
+        if user.get("subscription_start"]:
             try:
                 start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
                 expire_date = (start_date + timedelta(days=user["subscription_days"])).isoformat()
@@ -650,6 +655,45 @@ async def check_alerts(app):
         save_data(users_data)
 
 # —————————————————————————————————————————————————————————————————————
+# بخش جدید: هشدار اتمام اشتراک
+# —————————————————————————————————————————————————————————————————————
+
+async def check_subscription_alerts(app):
+    """ارسال هشدار به کاربرانی که اشتراکشان در حال اتمام است"""
+    global users_data
+    today = datetime.utcnow().date()
+    
+    for user_id, user in users_data.items():
+        days_left = user.get("days_left", 0)
+        last_alert = user.get("last_alert_sent")
+        
+        # شرایط ارسال هشدار:
+        # - اشتراک فعال باشد (days_left > 0)
+        # - ۳ روز یا کمتر به پایان اشتراک مانده باشد
+        # - در ۲۴ ساعت گذشته هشداری ارسال نشده باشد
+        if days_left > 0 and days_left <= SUBSCRIPTION_ALERT_DAYS:
+            if last_alert:
+                last_alert_date = datetime.fromisoformat(last_alert).date()
+                if (today - last_alert_date).days < 1:
+                    continue  # در ۲۴ ساعت گذشته هشدار ارسال شده
+            
+            try:
+                # ارسال پیام هشدار
+                await app.bot.send_message(
+                    chat_id=int(user_id),
+                    text=f"⏳ از زمان اشتراک شما فقط {days_left} روز باقی مانده است!\n"
+                         f"⚠️ لطفاً جهت جلوگیری از حذف دسترسی به کانال‌ها اشتراک خود را تمدید کنید.\n\n"
+                         f"📞 برای تمدید اشتراک با پشتیبانی تماس بگیرید: {SUPPORT_ID}"
+                )
+                
+                # به‌روزرسانی زمان آخرین هشدار
+                user["last_alert_sent"] = today.isoformat()
+                save_data(users_data)
+                
+            except Exception as e:
+                logging.error(f"خطا در ارسال هشدار اشتراک به {user_id}: {e}")
+
+# —————————————————————————————————————————————————————————————————————
 # بخش هفتم: پنل مدیریت ادمین (اصلاح شده)
 # —————————————————————————————————————————————————————————————————————
 
@@ -828,6 +872,9 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
             days_passed = (today - start_date).days
             user["days_left"] = max(0, user["subscription_days"] - days_passed)
             
+            # ریست کردن هشدارهای ارسال شده
+            user["last_alert_sent"] = None
+            
             await update.message.reply_text(f"✅ {days} روز به اشتراک کاربر اضافه شد")
         except ValueError:
             await update.message.reply_text("❌ تعداد روز باید عدد باشد")
@@ -843,6 +890,9 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
             today = datetime.utcnow().date()
             days_passed = (today - start_date).days
             user["days_left"] = max(0, user.get("subscription_days", 0) - days_passed)
+            
+            # ریست کردن هشدارهای ارسال شده
+            user["last_alert_sent"] = None
             
             await update.message.reply_text(f"✅ تاریخ شروع اشتراک به {value} تنظیم شد")
         except ValueError:
@@ -1004,8 +1054,18 @@ async def main():
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار قیمت: {e}")
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
+    
+    async def subscription_alert_loop():
+        await asyncio.sleep(30)
+        while True:
+            try:
+                await check_subscription_alerts(app)
+            except Exception as e:
+                logging.error(f"خطا در حلقه هشدار اشتراک: {e}")
+            await asyncio.sleep(6 * 3600)  # هر ۶ ساعت یکبار اجرا شود
 
     asyncio.create_task(alert_loop())
+    asyncio.create_task(subscription_alert_loop())
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
