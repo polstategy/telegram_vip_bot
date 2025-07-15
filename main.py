@@ -1015,7 +1015,7 @@ async def main():
     app.add_handler(CommandHandler("start", start), group=1)
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text), group=1)
-    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\\|\"), group=1)
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|\"), group=1)
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"), group=1)
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"), group=1)
     
