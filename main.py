@@ -1059,7 +1059,7 @@ async def main():
                 await check_subscription_alerts(app)
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار اشتراک: {e}")
-            await asyncio.sleep(6 * 3600)  # هر ۶ ساعت یکبار اجرا شود
+            await asyncio.sleep(10)  # هر ۶ ساعت یکبار اجرا شود
 
     asyncio.create_task(alert_loop())
     asyncio.create_task(subscription_alert_loop())
