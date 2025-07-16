@@ -1009,17 +1009,8 @@ async def main():
     asyncio.create_task(run_webserver())
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    app.add_handler(admin_conv_handler, group=0)
-    # اضافه کردن تمام هندلرهای ربات
-    app.add_handler(CommandHandler("start", start), group=1)
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact), group=1)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text), group=1)
-    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"), group=1)
-    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"), group=1)
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"), group=1)
-    
-    # تعریف ConversationHandler برای پنل ادمین (اصلاح شده)
+
+    # تعریف ConversationHandler برای پنل ادمین (قبل از اضافه کردن)
     admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_login)],
         states={
@@ -1038,6 +1029,17 @@ async def main():
         },
         fallbacks=[CommandHandler("admin", admin_login)]
     )
+    
+    # اضافه کردن تمام هندلرهای ربات
+    app.add_handler(admin_conv_handler)  # حذف group=0
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
+    app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
+    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+    
+    # حذف گروه‌بندی (group) از تمامی add_handler ها
 
     await app.initialize()
     await app.start()
