@@ -1,4 +1,4 @@
-# main.py — ربات تلگرام Polling + وب‌سرور aiohttp + پنل ادمین
+﻿# main.py — ربات تلگرام Polling + وب‌سرور aiohttp + پنل ادمین
 # -------------------------------------------------------------
 import logging
 import json
@@ -170,7 +170,6 @@ async def sync_user_data(user_id, user_data):
 # —————————————————————————————————————————————————————————————————————
 # بخش دوم: احراز هویت و منوی اصلی
 # —————————————————————————————————————————————————————————————————————
-
 def build_main_menu_keyboard(user_data):
     """تابع کمکی برای ساخت کیبورد منوی اصلی"""
     keyboard = []
@@ -244,7 +243,6 @@ async def show_main_menu(message, context: ContextTypes.DEFAULT_TYPE, user_data)
 # —————————————————————————————————————————————————————————————————————
 # بخش سوم: مدیریت اشتراک‌ها
 # —————————————————————————————————————————————————————————————————————
-
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user = users_data.get(user_id)
@@ -284,9 +282,8 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # —————————————————————————————————————————————————————————————————————
-# بخش چهارم: دسترسی به کانال‌ها
+# بخش چهارم: دسترسی به کانال‌ها (با تغییرات درخواستی)
 # —————————————————————————————————————————————————————————————————————
-
 async def generate_invite_link(context, chat_id, expire_minutes=10):
     """تولید لینک دعوت موقت"""
     try:
@@ -338,10 +335,13 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data[user_id] = user
     save_data(users_data)
     
-    # ارسال لینک
+    # ارسال لینک به صورت دکمه اینلاین
+    keyboard = [[InlineKeyboardButton("ورود به کانال", url=invite_link)]]
     await update.message.reply_text(
-        f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n{invite_link}\n\n"
-        f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز"
+        f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n\n"
+        f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        protect_content=True  # غیرفعال کردن فوروارد و کپی
     )
 
 async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -379,16 +379,18 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data[user_id] = user
     save_data(users_data)
     
-    # ارسال لینک
+    # ارسال لینک به صورت دکمه اینلاین
+    keyboard = [[InlineKeyboardButton("ورود به کانال CIP", url=invite_link)]]
     await update.message.reply_text(
-        f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n{invite_link}\n\n"
-        f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز"
+        f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
+        f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        protect_content=True  # غیرفعال کردن فوروارد و کپی
     )
 
 # —————————————————————————————————————————————————————————————————————
 # بخش پنجم: تحلیل بازار (فقط برای کاربران Hotline)
 # —————————————————————————————————————————————————————————————————————
-
 ASSETS = {
     "انس طلا": "XAU/USD",
     "EURUSD": "EUR/USD",
@@ -430,7 +432,7 @@ async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     _, period = query.data.split("|", 1)
     context.user_data["analysis"] = {"period": period}
-
+    
     kb = [
         [InlineKeyboardButton(label, callback_data=f"asset|{symbol}")]
         for label, symbol in ASSETS.items()
@@ -447,12 +449,12 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, symbol = query.data.split("|", 1)
     context.user_data["analysis"]["symbol"] = symbol
     period = context.user_data["analysis"]["period"]
-
+    
     asset_data = await get_asset_data(symbol, period)
     if not asset_data:
         await query.edit_message_text("⚠️ خطا در دریافت داده‌ها، لطفا بعداً تلاش کنید.")
         return
-
+    
     # نمایش نام فارسی دارایی
     asset_label = [k for k, v in ASSETS.items() if v == symbol][0]
     
@@ -467,9 +469,9 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += "مقاومت‌ها (U1–U5): " + ", ".join(f"{u:.2f}" for u in asset_data["U"][:5]) + "\n"
     msg += "حمایت‌ها (D1–D5): " + ", ".join(f"{d:.2f}" for d in asset_data["D"][:5]) + "\n\n"
     msg += "🔔 هشدار لحظه‌ای فعال شد. اگر قیمت به سطوح برخورد کند، به شما اطلاع داده می‌شود."
-
+    
     await query.edit_message_text(msg)
-
+    
     user_id = str(update.effective_user.id)
     user = users_data.get(user_id)
     if user is not None:
@@ -509,7 +511,7 @@ async def get_asset_data(symbol: str, period: str):
         
     start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
     end_date = now.strftime("%Y-%m-%d")
-
+    
     url = (
         "https://api.twelvedata.com/time_series?"
         f"symbol={symbol}&"
@@ -524,10 +526,10 @@ async def get_asset_data(symbol: str, period: str):
     except Exception as e:
         logging.error(f"خطا در دریافت داده‌های دارایی: {e}")
         return None
-
+    
     if not candles:
         return None
-
+    
     # تبدیل داده‌ها به فرمت عددی
     highs = []
     lows = []
@@ -539,14 +541,14 @@ async def get_asset_data(symbol: str, period: str):
             closes.append(float(c["close"]))
         except (KeyError, ValueError):
             continue
-
+    
     if not highs:
         return None
-
+    
     H = max(highs)
     L = min(lows)
     C = closes[-1] if closes else (H + L) / 2
-
+    
     # محاسبات سطوح
     M1 = (H + L) / 2
     M2 = (H + M1) / 2
@@ -557,11 +559,11 @@ async def get_asset_data(symbol: str, period: str):
     M7 = (M3 + L) / 2
     Z1 = (H + L + C) / 3
     pip = abs(H - M4)
-
+    
     # محاسبه سطوح مقاومت و حمایت
     U = [H + pip * (i + 1) for i in range(30)]
     D = [L - pip * (i + 1) for i in range(30)]
-
+    
     return {
         "H": H,
         "L": L,
@@ -590,14 +592,13 @@ async def get_current_price(symbol: str):
 # —————————————————————————————————————————————————————————————————————
 # بخش ششم: هشدار لحظه‌ای قیمت برای تمام کاربران فعال
 # —————————————————————————————————————————————————————————————————————
-
 async def check_alerts(app):
     global users_data
-
+    
     for user_id, user in users_data.items():
         if "watch_assets" not in user:
             continue
-
+        
         if user.get("days_left", 0) <= 0:
             # حذف کاربر از کانال در صورت منقضی شدن اشتراک
             try:
@@ -608,18 +609,18 @@ async def check_alerts(app):
             except:
                 pass
             continue
-
+        
         for wa in user["watch_assets"]:
             symbol = wa["symbol"]
             period = wa["period"]
-
+            
             asset_data = await get_asset_data(symbol, period)
             if not asset_data:
                 continue
             price = await get_current_price(symbol)
             if price is None:
                 continue
-
+            
             pip = asset_data["pip"]
             levels = [
                 asset_data["M1"],
@@ -631,7 +632,7 @@ async def check_alerts(app):
                 asset_data["M7"],
                 asset_data["Z1"],
             ] + asset_data["U"] + asset_data["D"]
-
+            
             for lvl in levels:
                 key = f"{symbol}_{period}_{round(lvl, 2)}"
                 if key in user["alerts"]:
@@ -641,20 +642,20 @@ async def check_alerts(app):
                         await app.bot.send_message(
                             chat_id=int(user_id),
                             text=f"⚠️ قیمت {symbol} به سطح مهم {round(lvl, 2)} رسیده.\nقیمت فعلی: {price:.2f}",
+                            protect_content=True  # غیرفعال کردن فوروارد و کپی
                         )
                         user["alerts"].append(key)
                         save_data(users_data)
                     except Exception as e:
                         logging.error(f"خطا در ارسال هشدار به {user_id}: {e}")
-
+            
             wa["last_processed"] = datetime.utcnow().isoformat()
-
+        
         save_data(users_data)
 
 # —————————————————————————————————————————————————————————————————————
-# بخش جدید: هشدار اتمام اشتراک
+# بخش جدید: هشدار اتمام اشتراک (با تغییرات درخواستی)
 # —————————————————————————————————————————————————————————————————————
-
 async def check_subscription_alerts(app):
     """ارسال هشدار به کاربرانی که اشتراکشان در حال اتمام است"""
     global users_data
@@ -674,13 +675,30 @@ async def check_subscription_alerts(app):
                 if (today - last_alert_date).days < 1:
                     continue  # در ۲۴ ساعت گذشته هشدار ارسال شده
             
+            # تشخیص نوع اشتراک
+            subscription_types = []
+            if user.get("CIP", False):
+                subscription_types.append("کانال CIP")
+            if user.get("Hotline", False):
+                subscription_types.append("کانال اصلی")
+            
+            if not subscription_types:
+                continue
+                
+            # ساخت پیام با ذکر نوع اشتراک
+            subscription_names = " و ".join(subscription_types)
+            message = (
+                f"⏳ از زمان اشتراک شما برای {subscription_names} فقط {days_left} روز باقی مانده است!\n"
+                f"⚠️ لطفاً جهت جلوگیری از حذف دسترسی به کانال‌ها اشتراک خود را تمدید کنید.\n\n"
+                f"📞 برای تمدید اشتراک با پشتیبانی تماس بگیرید: {SUPPORT_ID}"
+            )
+            
             try:
                 # ارسال پیام هشدار
                 await app.bot.send_message(
                     chat_id=int(user_id),
-                    text=f"⏳ از زمان اشتراک شما فقط {days_left} روز باقی مانده است!\n"
-                         f"⚠️ لطفاً جهت جلوگیری از حذف دسترسی به کانال‌ها اشتراک خود را تمدید کنید.\n\n"
-                         f"📞 برای تمدید اشتراک با پشتیبانی تماس بگیرید: {SUPPORT_ID}"
+                    text=message,
+                    protect_content=True  # غیرفعال کردن فوروارد و کپی
                 )
                 
                 # به‌روزرسانی زمان آخرین هشدار
@@ -693,7 +711,6 @@ async def check_subscription_alerts(app):
 # —————————————————————————————————————————————————————————————————————
 # بخش هفتم: پنل مدیریت ادمین (اصلاح شده)
 # —————————————————————————————————————————————————————————————————————
-
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔐 لطفاً رمز عبور ادمین را وارد کنید:",
@@ -734,6 +751,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hotline = "✅" if data.get("Hotline", False) else "❌"
         
         message += (
+            f"🆔 ID: {user_id}\n"
             f"📱: {phone}\n"
             f"👤: {name}\n"
             f"⏳: {days_left} روز\n"
@@ -744,6 +762,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ارسال پیام به صورت چند قسمتی اگر طولانی باشد
     for i in range(0, len(message), 4000):
         await update.message.reply_text(message[i:i+4000])
+    return ADMIN_ACTION
 
 async def edit_subscription_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -924,7 +943,6 @@ async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش هشتم: اخبار اقتصادی فارکس
 # —————————————————————————————————————————————————————————————————————
-
 async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     news_sources = [
         "📰 منابع خبری و تقویم اقتصادی فارکس:",
@@ -942,7 +960,6 @@ async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش نهم: سایر دستورات
 # —————————————————————————————————————————————————————————————————————
-
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💳 برای خرید اشتراک لطفاً با پشتیبانی تماس بگیرید.\n"
@@ -981,7 +998,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # —————————————————————————————————————————————————————————————————————
 # بخش دهم: وب‌سرور و راه‌اندازی اصلی (اصلاح شده)
 # —————————————————————————————————————————————————————————————————————
-
 async def handle_root(request):
     return web.Response(text="Bot is running")
 
@@ -1010,7 +1026,7 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # تعریف ConversationHandler برای پنل ادمین (قبل از اضافه کردن)
+    # تعریف ConversationHandler برای پنل ادمین
     admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_login)],
         states={
@@ -1031,7 +1047,7 @@ async def main():
     )
     
     # اضافه کردن تمام هندلرهای ربات
-    app.add_handler(admin_conv_handler)  # حذف group=0
+    app.add_handler(admin_conv_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -1039,8 +1055,6 @@ async def main():
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
     
-    # حذف گروه‌بندی (group) از تمامی add_handler ها
-
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
