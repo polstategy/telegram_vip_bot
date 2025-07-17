@@ -1,4 +1,4 @@
-﻿# main.py — ربات تلگرام Polling + وب‌سرور aiohttp + پنل ادمین
+# main.py — ربات تلگرام Polling + وب‌سرور aiohttp + پنل ادمین
 # -------------------------------------------------------------
 import logging
 import json
@@ -37,6 +37,11 @@ SUPPORT_ID = os.environ.get("SUPPORT_ID", "@Daniyalkhanzadeh")
 GOOGLE_SHEET_URL = os.environ.get("GOOGLE_SHEET_URL", "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec")
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
 PORT = int(os.environ.get("PORT", "10000"))
+
+# اطلاعات ارتباطی جدید
+WEBSITE_URL = os.environ.get("WEBSITE_URL", "https://example.com")
+INSTAGRAM_URL = os.environ.get("INSTAGRAM_URL", "https://instagram.com/example")
+YOUTUBE_URL = os.environ.get("YOUTUBE_URL", "https://youtube.com/example")
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
@@ -168,7 +173,7 @@ async def sync_user_data(user_id, user_data):
 
 
 # —————————————————————————————————————————————————————————————————————
-# بخش دوم: احراز هویت و منوی اصلی
+# بخش دوم: احراز هویت و منوی اصلی (با تغییرات)
 # —————————————————————————————————————————————————————————————————————
 def build_main_menu_keyboard(user_data):
     """تابع کمکی برای ساخت کیبورد منوی اصلی"""
@@ -189,7 +194,8 @@ def build_main_menu_keyboard(user_data):
     
     # ردیف چهارم: سایر گزینه‌ها
     keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
-    keyboard.append(["📰 اخبار اقتصادی فارکس"])
+    keyboard.append(["📰 اخبار اقتصادی فارکس", "📞 ارتباط با ما"])
+    keyboard.append(["🔙 بازگشت به منو"])
     
     return keyboard
 
@@ -421,7 +427,7 @@ async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(label, callback_data=f"period|{period}")]
         for label, period in PERIODS.items()
     ]
-    kb.append([InlineKeyboardButton("بازگشت به منو", callback_data="analysis|restart")])
+    kb.append([InlineKeyboardButton("🔙 بازگشت به منو", callback_data="analysis|back_to_main")])
     await update.message.reply_text(
         "لطفاً دوره زمانی مورد نظر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(kb),
@@ -437,7 +443,7 @@ async def asset_selection_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton(label, callback_data=f"asset|{symbol}")]
         for label, symbol in ASSETS.items()
     ]
-    kb.append([InlineKeyboardButton("بازگشت", callback_data="analysis|restart")])
+    kb.append([InlineKeyboardButton("🔙 بازگشت", callback_data="analysis|back")])
     await query.edit_message_text(
         "لطفاً دارایی مورد نظر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(kb),
@@ -489,10 +495,17 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             save_data(users_data)
 
-async def analysis_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def analysis_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await analysis_menu(update, context)
+
+async def analysis_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    await show_main_menu(query.message, context, user)
 
 async def get_asset_data(symbol: str, period: str):
     now = datetime.utcnow()
@@ -659,7 +672,7 @@ async def check_alerts(app):
 async def check_subscription_alerts(app):
     """ارسال هشدار به کاربرانی که اشتراکشان در حال اتمام است"""
     global users_data
-    today = datetime.utcnow().date()
+    now = datetime.utcnow()
     
     for user_id, user in users_data.items():
         days_left = user.get("days_left", 0)
@@ -668,12 +681,16 @@ async def check_subscription_alerts(app):
         # شرایط ارسال هشدار:
         # - اشتراک فعال باشد (days_left > 0)
         # - ۳ روز یا کمتر به پایان اشتراک مانده باشد
-        # - در ۲۴ ساعت گذشته هشداری ارسال نشده باشد
         if days_left > 0 and days_left <= SUBSCRIPTION_ALERT_DAYS:
+            # بررسی زمان آخرین هشدار
             if last_alert:
-                last_alert_date = datetime.fromisoformat(last_alert).date()
-                if (today - last_alert_date).days < 1:
-                    continue  # در ۲۴ ساعت گذشته هشدار ارسال شده
+                try:
+                    last_alert_time = datetime.fromisoformat(last_alert)
+                    # اگر کمتر از 3 ساعت از آخرین هشدار گذشته باشد، ارسال نکن
+                    if (now - last_alert_time) < timedelta(hours=3):
+                        continue
+                except Exception as e:
+                    logging.error(f"خطا در بررسی زمان هشدار: {e}")
             
             # تشخیص نوع اشتراک
             subscription_types = []
@@ -702,7 +719,7 @@ async def check_subscription_alerts(app):
                 )
                 
                 # به‌روزرسانی زمان آخرین هشدار
-                user["last_alert_sent"] = today.isoformat()
+                user["last_alert_sent"] = now.isoformat()
                 save_data(users_data)
                 
             except Exception as e:
@@ -730,7 +747,7 @@ async def handle_admin_password(update: Update, context: ContextTypes.DEFAULT_TY
 async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["👥 لیست کاربران", "✏️ ویرایش اشتراک"],
-        ["🔄 همگام‌سازی داده‌ها", "🔙 خروج"]
+        ["🔄 همگام‌سازی داده‌ها", "🔙 بازگشت"]  # تغییر به "بازگشت"
     ]
     await update.message.reply_text(
         "🔧 پنل مدیریت ادمین",
@@ -958,7 +975,29 @@ async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(news_sources))
 
 # —————————————————————————————————————————————————————————————————————
-# بخش نهم: سایر دستورات
+# بخش جدید: ارتباط با ما
+# —————————————————————————————————————————————————————————————————————
+async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    contact_info = f"""
+📞 ارتباط با ما
+
+🌐 وبسایت رسمی:
+{WEBSITE_URL}
+
+📱 اینستاگرام:
+{INSTAGRAM_URL}
+
+▶️ یوتیوب:
+{YOUTUBE_URL}
+
+✉️ پشتیبانی:
+{SUPPORT_ID}
+"""
+    
+    await update.message.reply_text(contact_info)
+
+# —————————————————————————————————————————————————————————————————————
+# بخش نهم: سایر دستورات (با تغییرات)
 # —————————————————————————————————————————————————————————————————————
 async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -992,6 +1031,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await analysis_menu(update, context)
     elif text == "📰 اخبار اقتصادی فارکس":
         await economic_news(update, context)
+    elif text == "📞 ارتباط با ما":
+        await contact_us(update, context)
+    elif text == "🔙 بازگشت به منو":
+        await show_main_menu(update.message, context, user)
     else:
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
@@ -1035,7 +1078,7 @@ async def main():
                 MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
                 MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
                 MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
-                MessageHandler(filters.Regex("^🔙 خروج$"), admin_logout),
+                MessageHandler(filters.Regex("^🔙 بازگشت$"), admin_logout),
             ],
             SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
             EDIT_SUBSCRIPTION: [
@@ -1053,7 +1096,8 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
-    app.add_handler(CallbackQueryHandler(analysis_restart, pattern=r"^analysis\|restart"))
+    app.add_handler(CallbackQueryHandler(analysis_back, pattern=r"^analysis\|back$"))
+    app.add_handler(CallbackQueryHandler(analysis_back_to_main, pattern=r"^analysis\|back_to_main$"))
     
     await app.initialize()
     await app.start()
@@ -1075,7 +1119,7 @@ async def main():
                 await check_subscription_alerts(app)
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار اشتراک: {e}")
-            await asyncio.sleep(6 * 3600)  # هر ۶ ساعت یکبار اجرا شود
+            await asyncio.sleep(3 * 3600)  # هر 3 ساعت یکبار اجرا شود
 
     asyncio.create_task(alert_loop())
     asyncio.create_task(subscription_alert_loop())
