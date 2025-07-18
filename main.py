@@ -391,12 +391,11 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(users_data)
     
     # ارسال لینک به صورت دکمه اینلاین
-    keyboard = [[InlineKeyboardButton("ورود به کانال", url=invite_link)]]
+    keyboard = [[InlineKeyboardButton("Hotlineورود به کانال", url=invite_link)]]
     await update.message.reply_text(
         f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n\n"
         f"⚠️ توجه: این لینک فقط برای شما فعال است\n"
         f"⚠️ پس از کلیک، درخواست عضویت شما به صورت خودکار تایید می‌شود\n"
-        f"⚠️ در صورت کپی و استفاده توسط دیگران، درخواست آن‌ها رد خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -443,7 +442,6 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
         f"⚠️ توجه: این لینک فقط برای شما فعال است\n"
         f"⚠️ پس از کلیک، درخواست عضویت شما به صورت خودکار تایید می‌شود\n"
-        f"⚠️ در صورت کپی و استفاده توسط دیگران، درخواست آن‌ها رد خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -1060,9 +1058,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if text == "📅 اشتراک من":
         await my_subscription(update, context)
-    elif text == "🔑 ورود به کانال":
+    elif text == "🔑  Hotline ورود به کانال":
         await join_channel(update, context)
-    elif text == "🌐 کانال CIP":
+    elif text == "🌐ورود به کانال CIP":
         await join_cip_channel(update, context)
     elif text == "💳 خرید اشتراک":
         await buy_subscription(update, context)
