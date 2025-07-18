@@ -38,10 +38,14 @@ GOOGLE_SHEET_URL = os.environ.get("GOOGLE_SHEET_URL", "https://script.google.com
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
 PORT = int(os.environ.get("PORT", "10000"))
 
-# اطلاعات ارتباطی جدید
+# اطلاعات ارتباطی
 WEBSITE_URL = os.environ.get("WEBSITE_URL", "https://example.com")
 INSTAGRAM_URL = os.environ.get("INSTAGRAM_URL", "https://instagram.com/example")
 YOUTUBE_URL = os.environ.get("YOUTUBE_URL", "https://youtube.com/example")
+
+# کدهای تخفیف
+DISCOUNT_CODE_10 = os.environ.get("DISCOUNT_CODE_10", "KHZD10")
+DISCOUNT_CODE_20 = os.environ.get("DISCOUNT_CODE_20", "KHZD20")
 
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
@@ -50,7 +54,7 @@ ALERT_INTERVAL_SECONDS = 300
 SUBSCRIPTION_ALERT_DAYS = 3  # تعداد روزهای مانده به پایان اشتراک برای ارسال هشدار
 
 # مراحل گفتگو برای پنل ادمین
-ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION = range(4)
+ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION, EDIT_DISCOUNT = range(5)
 
 # -------------------------------------------------------------
 
@@ -95,7 +99,7 @@ async def update_user_in_sheet(user_data):
     """به‌روزرسانی کاربر در Google Sheet"""
     try:
         payload = {
-            "action": "register",  # تغییر به register برای ثبت اولیه
+            "action": "register",
             "phone": user_data["phone"],
             "name": user_data.get("name", ""),
             "days": user_data.get("subscription_days", 0),
@@ -197,8 +201,9 @@ def build_main_menu_keyboard(user_data):
     # ردیف سوم: خرید اشتراک و پشتیبانی
     keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
     
-    # ردیف چهارم: اخبار و ارتباط با ما
+    # ردیف چهارم: اخبار، ارتباط با ما و کد تخفیف
     keyboard.append(["📰 اخبار اقتصادی فارکس", "📞 ارتباط با ما"])
+    keyboard.append(["🔰 کد تخفیف پراپفرم ForFx"])
     
     # ردیف پنجم: بازگشت به منو
     keyboard.append(["🔙 بازگشت به منو"])
@@ -231,7 +236,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "subscription_days": 0,
         "subscription_start": "",
         "days_left": 0,
-        "last_alert_sent": None  # تاریخ آخرین هشدار ارسالی
+        "last_alert_sent": None
     }
     
     # همگام‌سازی با گوگل شیت
@@ -294,18 +299,18 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # —————————————————————————————————————————————————————————————————————
-# بخش چهارم: دسترسی به کانال‌ها
+# بخش چهارم: دسترسی به کانال‌ها (با امنیت افزایشی)
 # —————————————————————————————————————————————————————————————————————
 async def generate_invite_link(context, chat_id, expire_minutes=10):
-    """تولید لینک دعوت موقت"""
+    """تولید لینک دعوت موقت با امنیت افزایشی"""
     try:
-        # محاسبه زمان انقضا به درستی
         expire_timestamp = int((datetime.utcnow() + timedelta(minutes=expire_minutes)).timestamp())
         
         res = await context.bot.create_chat_invite_link(
             chat_id=chat_id,
-            expire_date=expire_timestamp,  # استفاده از تایمستامپ محاسبه شده
-            member_limit=1,
+            expire_date=expire_timestamp,
+            member_limit=1,  # فقط برای یک کاربر فعال می‌شود
+            creates_join_request=False
         )
         return res.invite_link
     except Exception as e:
@@ -351,6 +356,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("ورود به کانال", url=invite_link)]]
     await update.message.reply_text(
         f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n\n"
+        f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -395,13 +401,14 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("ورود به کانال CIP", url=invite_link)]]
     await update.message.reply_text(
         f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
+        f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
     )
 
 # —————————————————————————————————————————————————————————————————————
-# بخش پنجم: تحلیل بازار (فقط برای کاربران Hotline)
+# بخش پنجم: تحلیل بازار
 # —————————————————————————————————————————————————————————————————————
 ASSETS = {
     "انس طلا": "XAU/USD",
@@ -513,167 +520,8 @@ async def analysis_back_to_main(update: Update, context: ContextTypes.DEFAULT_TY
     user = users_data.get(user_id)
     await show_main_menu(query.message, context, user)
 
-async def get_asset_data(symbol: str, period: str):
-    now = datetime.utcnow()
-    
-    # تعیین محدوده زمانی بر اساس انتخاب کاربر
-    if period == "1w":
-        days = 7
-    elif period == "1m":
-        days = 30
-    elif period == "3m":
-        days = 90
-    elif period == "6m":
-        days = 180
-    else:
-        days = 7
-        
-    start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
-    end_date = now.strftime("%Y-%m-%d")
-    
-    url = (
-        "https://api.twelvedata.com/time_series?"
-        f"symbol={symbol}&"
-        "interval=1day&"
-        f"start_date={start_date}&"
-        f"end_date={end_date}&"
-        f"apikey={TWELVE_API_KEY}"
-    )
-    try:
-        resp = requests.get(url, timeout=15).json()
-        candles = resp.get("values", [])
-    except Exception as e:
-        logging.error(f"خطا در دریافت داده‌های دارایی: {e}")
-        return None
-    
-    if not candles:
-        return None
-    
-    # تبدیل داده‌ها به فرمت عددی
-    highs = []
-    lows = []
-    closes = []
-    for c in candles:
-        try:
-            highs.append(float(c["high"]))
-            lows.append(float(c["low"]))
-            closes.append(float(c["close"]))
-        except (KeyError, ValueError):
-            continue
-    
-    if not highs:
-        return None
-    
-    H = max(highs)
-    L = min(lows)
-    C = closes[-1] if closes else (H + L) / 2
-    
-    # محاسبات سطوح
-    M1 = (H + L) / 2
-    M2 = (H + M1) / 2
-    M3 = (L + M1) / 2
-    M4 = (H + M2) / 2
-    M5 = (M2 + M1) / 2
-    M6 = (M1 + M3) / 2
-    M7 = (M3 + L) / 2
-    Z1 = (H + L + C) / 3
-    pip = abs(H - M4)
-    
-    # محاسبه سطوح مقاومت و حمایت
-    U = [H + pip * (i + 1) for i in range(30)]
-    D = [L - pip * (i + 1) for i in range(30)]
-    
-    return {
-        "H": H,
-        "L": L,
-        "C": C,
-        "M1": M1,
-        "M2": M2,
-        "M3": M3,
-        "M4": M4,
-        "M5": M5,
-        "M6": M6,
-        "M7": M7,
-        "Z1": Z1,
-        "pip": pip,
-        "U": U,
-        "D": D,
-    }
-
-async def get_current_price(symbol: str):
-    url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_API_KEY}"
-    try:
-        resp = requests.get(url, timeout=10).json()
-        return float(resp.get("price", 0))
-    except:
-        return None
-
 # —————————————————————————————————————————————————————————————————————
-# بخش ششم: هشدار لحظه‌ای قیمت برای تمام کاربران فعال
-# —————————————————————————————————————————————————————————————————————
-async def check_alerts(app):
-    global users_data
-    
-    for user_id, user in users_data.items():
-        if "watch_assets" not in user:
-            continue
-        
-        if user.get("days_left", 0) <= 0:
-            # حذف کاربر از کانال در صورت منقضی شدن اشتراک
-            try:
-                await app.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
-                await app.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
-                await app.bot.ban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
-                await app.bot.unban_chat_member(chat_id=CIP_CHANNEL_ID, user_id=int(user_id))
-            except:
-                pass
-            continue
-        
-        for wa in user["watch_assets"]:
-            symbol = wa["symbol"]
-            period = wa["period"]
-            
-            asset_data = await get_asset_data(symbol, period)
-            if not asset_data:
-                continue
-            price = await get_current_price(symbol)
-            if price is None:
-                continue
-            
-            pip = asset_data["pip"]
-            levels = [
-                asset_data["M1"],
-                asset_data["M2"],
-                asset_data["M3"],
-                asset_data["M4"],
-                asset_data["M5"],
-                asset_data["M6"],
-                asset_data["M7"],
-                asset_data["Z1"],
-            ] + asset_data["U"] + asset_data["D"]
-            
-            for lvl in levels:
-                key = f"{symbol}_{period}_{round(lvl, 2)}"
-                if key in user["alerts"]:
-                    continue
-                if abs(price - lvl) < pip / 10:
-                    try:
-                        await app.bot.send_message(
-                            chat_id=int(user_id),
-                            text=f"⚠️ قیمت {symbol} به سطح مهم {round(lvl, 2)} رسیده.\nقیمت فعلی: {price:.2f}",
-                            protect_content=True  # غیرفعال کردن فوروارد و کپی
-                        )
-                        user["alerts"].append(key)
-                        save_data(users_data)
-                    except Exception as e:
-                        logging.error(f"خطا در ارسال هشدار به {user_id}: {e}")
-            
-            wa["last_processed"] = datetime.utcnow().isoformat()
-        
-        save_data(users_data)
-
-# —————————————————————————————————————————————————————————————————————
-# بخش جدید: هشدار اتمام اشتراک (با رفع مشکل)
+# بخش ششم: هشدار اتمام اشتراک (با رفع مشکل)
 # —————————————————————————————————————————————————————————————————————
 async def check_subscription_alerts(app):
     """ارسال هشدار به کاربرانی که اشتراکشان در حال اتمام است"""
@@ -686,8 +534,6 @@ async def check_subscription_alerts(app):
         last_alert = user.get("last_alert_sent")
         
         # شرایط ارسال هشدار:
-        # - اشتراک فعال باشد (days_left > 0)
-        # - ۳ روز یا کمتر به پایان اشتراک مانده باشد
         if days_left > 0 and days_left <= SUBSCRIPTION_ALERT_DAYS:
             logging.info(f"کاربر {user_id} واجد شرایط هشدار: {days_left} روز باقی مانده")
             
@@ -695,7 +541,6 @@ async def check_subscription_alerts(app):
             if last_alert:
                 try:
                     last_alert_time = datetime.fromisoformat(last_alert)
-                    # اگر کمتر از 3 ساعت از آخرین هشدار گذشته باشد، ارسال نکن
                     if (now - last_alert_time) < timedelta(hours=3):
                         logging.info(f"اخیراً به کاربر {user_id} هشدار ارسال شده است. رد شد.")
                         continue
@@ -723,11 +568,10 @@ async def check_subscription_alerts(app):
             
             try:
                 logging.info(f"ارسال هشدار اشتراک به {user_id}")
-                # ارسال پیام هشدار
                 await app.bot.send_message(
                     chat_id=int(user_id),
                     text=message,
-                    protect_content=True  # غیرفعال کردن فوروارد و کپی
+                    protect_content=True
                 )
                 
                 # به‌روزرسانی زمان آخرین هشدار
@@ -742,7 +586,7 @@ async def check_subscription_alerts(app):
     logging.info(f"✅ بررسی هشدارهای اشتراک تکمیل شد")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش هفتم: پنل مدیریت ادمین
+# بخش هفتم: پنل مدیریت ادمین (با قابلیت مدیریت کدهای تخفیف)
 # —————————————————————————————————————————————————————————————————————
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -763,7 +607,8 @@ async def handle_admin_password(update: Update, context: ContextTypes.DEFAULT_TY
 async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["👥 لیست کاربران", "✏️ ویرایش اشتراک"],
-        ["🔄 همگام‌سازی داده‌ها", "🔙 بازگشت"]  # تغییر به "بازگشت"
+        ["✏️ ویرایش کدهای تخفیف", "🔄 همگام‌سازی داده‌ها"],
+        ["🔙 بازگشت به منو"]
     ]
     await update.message.reply_text(
         "🔧 پنل مدیریت ادمین",
@@ -909,7 +754,6 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "add_days":
         try:
             days = int(value)
-            # اگر کاربر قبلاً اشتراک نداشته (تاریخ شروع ندارد) یا اشتراکش تمام شده، تاریخ شروع را امروز قرار بده
             if not user.get("subscription_start") or user.get("days_left", 0) <= 0:
                 user["subscription_start"] = datetime.utcnow().date().isoformat()
             
@@ -930,47 +774,87 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif action == "set_start_date":
         try:
-            # بررسی فرمت تاریخ
             datetime.strptime(value, "%Y-%m-%d")
             user["subscription_start"] = value
             
-            # محاسبه days_left
             start_date = datetime.strptime(value, "%Y-%m-%d").date()
             today = datetime.utcnow().date()
             days_passed = (today - start_date).days
             user["days_left"] = max(0, user.get("subscription_days", 0) - days_passed)
             
-            # ریست کردن هشدارهای ارسال شده
             user["last_alert_sent"] = None
             
             await update.message.reply_text(f"✅ تاریخ شروع اشتراک به {value} تنظیم شد")
         except ValueError:
             await update.message.reply_text("❌ فرمت تاریخ نامعتبر. لطفاً از فرمت YYYY-MM-DD استفاده کنید")
     
-    # به‌روزرسانی در گوگل شیت
     await update_user_in_sheet(user)
-    
-    # به‌روزرسانی داده‌های محلی
     users_data[user_id] = user
     save_data(users_data)
+    return await show_admin_dashboard(update, context)
+
+async def edit_discount_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        ["✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%"],
+        ["🔙 بازگشت"]
+    ]
+    await update.message.reply_text(
+        f"کدهای تخفیف فعلی:\n\n"
+        f"🔸 کد 10%: {DISCOUNT_CODE_10}\n"
+        f"🔸 کد 20%: {DISCOUNT_CODE_20}\n\n"
+        "لطفاً انتخاب کنید:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+    return EDIT_DISCOUNT
+
+async def handle_discount_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    action = update.message.text
+    global DISCOUNT_CODE_10, DISCOUNT_CODE_20
+    
+    if action == "✏️ ویرایش کد 10%":
+        await update.message.reply_text("لطفاً کد تخفیف 10% جدید را وارد کنید:")
+        context.user_data["discount_action"] = "edit_10"
+        return EDIT_DISCOUNT
+    
+    elif action == "✏️ ویرایش کد 20%":
+        await update.message.reply_text("لطفاً کد تخفیف 20% جدید را وارد کنید:")
+        context.user_data["discount_action"] = "edit_20"
+        return EDIT_DISCOUNT
+    
+    elif action == "🔙 بازگشت":
+        return await show_admin_dashboard(update, context)
+
+async def handle_discount_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global DISCOUNT_CODE_10, DISCOUNT_CODE_20
+    action = context.user_data.get("discount_action")
+    new_code = update.message.text.strip()
+    
+    if action == "edit_10":
+        DISCOUNT_CODE_10 = new_code
+        await update.message.reply_text(f"✅ کد تخفیف 10% به {new_code} به‌روزرسانی شد")
+    elif action == "edit_20":
+        DISCOUNT_CODE_20 = new_code
+        await update.message.reply_text(f"✅ کد تخفیف 20% به {new_code} به‌روزرسانی شد")
     
     return await show_admin_dashboard(update, context)
 
 async def sync_all_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """همگام‌سازی تمام داده‌ها با گوگل شیت"""
     count = 0
     for user_id, user_data in users_data.items():
         if await update_user_in_sheet(user_data):
             count += 1
-    
     await update.message.reply_text(f"✅ {count} کاربر با گوگل شیت همگام‌سازی شدند")
     return ADMIN_ACTION
 
 async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
     await update.message.reply_text(
         "شما از پنل ادمین خارج شدید.",
         reply_markup=ReplyKeyboardRemove()
     )
+    if user:
+        await show_main_menu(update.message, context, user)
     return ConversationHandler.END
 
 # —————————————————————————————————————————————————————————————————————
@@ -987,7 +871,6 @@ async def economic_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• خبرگزاری فارس (بخش اقتصاد): https://www.farsnews.ir/economy",
         "• بورس نیوز (اخبار فارکس): https://www.boursenews.ir/tag/فارکس"
     ]
-    
     await update.message.reply_text("\n".join(news_sources))
 
 # —————————————————————————————————————————————————————————————————————
@@ -1009,8 +892,41 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✉️ پشتیبانی:
 {SUPPORT_ID}
 """
-    
     await update.message.reply_text(contact_info)
+
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: کد تخفیف پراپ‌فرم ForFx
+# —————————————————————————————————————————————————————————————————————
+async def forfx_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    discount_info = f"""
+🔰برای دریافت چالش پراپ از پراپفرم ForFx🔰
+
+🎆میتوانید از کد های تخفیف آکادمی (خان زاده) استفاده نمایید:
+
+🔻کد تخفیف مخصوص حساب peak Scalp🔻
+
+🔸10% تخفیف🔸
+
+🟣  {DISCOUNT_CODE_10}کد تخفیف :  🟣
+
+➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖
+🔻کد تخفیف مخصوص حساب های Legend و Flash 🔻
+
+🔸20% تخفیف 🔸
+
+🟣  {DISCOUNT_CODE_20}   کد تخفیف : 🟣
+
+
+ForFx.com
+
+🟡قبل از خرید به id شخصی بنده پیام دهید و مشاوره شوید.
+
+
+🔻🌐ID telegram:🌐🔻
+
+{SUPPORT_ID}
+"""
+    await update.message.reply_text(discount_info)
 
 # —————————————————————————————————————————————————————————————————————
 # بخش نهم: سایر دستورات (با تغییرات)
@@ -1049,13 +965,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await economic_news(update, context)
     elif text == "📞 ارتباط با ما":
         await contact_us(update, context)
+    elif text == "🔰 کد تخفیف پراپفرم ForFx":
+        await forfx_discount(update, context)
     elif text == "🔙 بازگشت به منو":
         await show_main_menu(update.message, context, user)
     else:
         await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
 
 # —————————————————————————————————————————————————————————————————————
-# بخش دهم: وب‌سرور و راه‌اندازی اصلی (اصلاح شده)
+# بخش دهم: وب‌سرور و راه‌اندازی اصلی
 # —————————————————————————————————————————————————————————————————————
 async def handle_root(request):
     return web.Response(text="Bot is running")
@@ -1093,13 +1011,18 @@ async def main():
             ADMIN_ACTION: [
                 MessageHandler(filters.Regex("^👥 لیست کاربران$"), list_users),
                 MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
+                MessageHandler(filters.Regex("^✏️ ویرایش کدهای تخفیف$"), edit_discount_start),
                 MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
-                MessageHandler(filters.Regex("^🔙 بازگشت$"), admin_logout),
+                MessageHandler(filters.Regex("^🔙 بازگشت به منو$"), admin_logout),
             ],
             SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
             EDIT_SUBSCRIPTION: [
                 MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
+            ],
+            EDIT_DISCOUNT: [
+                MessageHandler(filters.Regex("^(✏️ ویرایش کد 10%|✏️ ویرایش کد 20%|🔙 بازگشت)$"), handle_discount_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_discount_value)
             ]
         },
         fallbacks=[CommandHandler("admin", admin_login)]
