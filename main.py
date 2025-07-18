@@ -341,15 +341,14 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # بخش چهارم: دسترسی به کانال‌ها (با امنیت افزایشی)
 # —————————————————————————————————————————————————————————————————————
 async def generate_invite_link(context, chat_id, expire_minutes=10):
-    """تولید لینک دعوت موقت با امنیت افزایشی"""
+    """تولید لینک دعوت با سیستم درخواست عضویت"""
     try:
         expire_timestamp = int((datetime.utcnow() + timedelta(minutes=expire_minutes)).timestamp())
         
         res = await context.bot.create_chat_invite_link(
             chat_id=chat_id,
             expire_date=expire_timestamp,
-            member_limit=1,  # فقط برای یک کاربر فعال می‌شود
-            creates_join_request=False
+            creates_join_request=True  # فعال‌سازی سیستم درخواست عضویت
         )
         return res.invite_link
     except Exception as e:
@@ -395,8 +394,9 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("ورود به کانال", url=invite_link)]]
     await update.message.reply_text(
         f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n\n"
-        f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
-        f"⚠️ در صورت کپی و استفاده توسط دیگران، لینک نامعتبر خواهد شد\n"
+        f"⚠️ توجه: این لینک فقط برای شما فعال است\n"
+        f"⚠️ پس از کلیک، درخواست عضویت شما به صورت خودکار تایید می‌شود\n"
+        f"⚠️ در صورت کپی و استفاده توسط دیگران، درخواست آن‌ها رد خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -437,16 +437,58 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data[user_id] = user
     save_data(users_data)
     
-    # ارسال لینک به صورت دکمه اینلاین
+    # ارسال لینک به صورت دکته اینلاین
     keyboard = [[InlineKeyboardButton("ورود به کانال CIP", url=invite_link)]]
     await update.message.reply_text(
         f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
-        f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
-        f"⚠️ در صورت کپی و استفاده توسط دیگران، لینک نامعتبر خواهد شد\n"
+        f"⚠️ توجه: این لینک فقط برای شما فعال است\n"
+        f"⚠️ پس از کلیک، درخواست عضویت شما به صورت خودکار تایید می‌شود\n"
+        f"⚠️ در صورت کپی و استفاده توسط دیگران، درخواست آن‌ها رد خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
     )
+
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: مدیریت درخواست‌های عضویت در کانال
+# —————————————————————————————————————————————————————————————————————
+async def handle_chat_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت درخواست‌های عضویت در کانال"""
+    join_request = update.chat_join_request
+    user_id = str(join_request.from_user.id)
+    chat_id = join_request.chat.id
+    
+    logging.info(f"دریافت درخواست عضویت: کاربر {user_id} برای کانال {chat_id}")
+    
+    # پیدا کردن کاربر در دیتابیس
+    user = users_data.get(user_id)
+    if not user:
+        logging.warning(f"کاربر {user_id} در دیتابیس یافت نشد")
+        await context.bot.decline_chat_join_request(chat_id, user_id)
+        return
+    
+    # همگام‌سازی داده‌ها
+    user = await sync_user_data(user_id, user)
+    
+    # بررسی اعتبار دسترسی
+    valid_access = False
+    if chat_id == CHANNEL_ID and user.get("Hotline", False) and user.get("days_left", 0) > 0:
+        valid_access = True
+    elif chat_id == CIP_CHANNEL_ID and user.get("CIP", False) and user.get("days_left", 0) > 0:
+        valid_access = True
+    
+    # تأیید یا رد درخواست
+    if valid_access:
+        logging.info(f"تأیید عضویت کاربر {user_id} برای کانال {chat_id}")
+        await context.bot.approve_chat_join_request(chat_id, user_id)
+    else:
+        logging.warning(f"رد عضویت کاربر {user_id} برای کانال {chat_id}")
+        await context.bot.decline_chat_join_request(chat_id, user_id)
+        await context.bot.send_message(
+            chat_id=int(user_id),
+            text="⚠️ این لینک برای شما معتبر نیست یا اشتراک شما منقضی شده است.",
+            protect_content=True
+        )
 
 # —————————————————————————————————————————————————————————————————————
 # بخش پنجم: تحلیل بازار
@@ -467,6 +509,19 @@ PERIODS = {
     "سه ماه گذشته": "3m",
     "شش ماه گذشته": "6m",
 }
+
+async def get_asset_data(symbol, period):
+    """تابع موقت برای دریافت داده‌های دارایی (پیاده‌سازی واقعی نیازمند اتصال به API)"""
+    # این قسمت باید با اتصال به API واقعی جایگزین شود
+    return {
+        "H": 1800.0, "L": 1750.0, "C": 1775.0,
+        "M1": 1760.0, "M2": 1765.0, "M3": 1770.0, "M4": 1775.0,
+        "M5": 1780.0, "M6": 1785.0, "M7": 1790.0,
+        "Z1": 1775.0,
+        "pip": 0.1,
+        "U": [1800.0, 1810.0, 1820.0, 1830.0, 1840.0],
+        "D": [1750.0, 1740.0, 1730.0, 1720.0, 1710.0]
+    }
 
 async def analysis_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -1092,6 +1147,9 @@ async def main():
     app.add_handler(CallbackQueryHandler(analysis_back, pattern=r"^analysis\|back$"))
     app.add_handler(CallbackQueryHandler(analysis_back_to_main, pattern=r"^analysis\|back_to_main$"))
     
+    # افزودن هندلر جدید برای مدیریت درخواست‌های عضویت
+    app.add_handler(ChatJoinRequestHandler(handle_chat_join_request))
+    
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
@@ -1100,7 +1158,8 @@ async def main():
         await asyncio.sleep(10)
         while True:
             try:
-                await check_alerts(app)
+                # await check_alerts(app)  # غیرفعال تا پیاده‌سازی شود
+                pass
             except Exception as e:
                 logging.error(f"خطا در حلقه هشدار قیمت: {e}")
             await asyncio.sleep(ALERT_INTERVAL_SECONDS)
