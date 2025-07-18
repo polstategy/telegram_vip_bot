@@ -1058,9 +1058,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if text == "📅 اشتراک من":
         await my_subscription(update, context)
-    elif text == "🔑 ورود به کانال":
+    elif text == "🔑 Hotline ورود به کانال":
         await join_channel(update, context)
-    elif text == "🌐 کانال CIP":
+    elif text == "🌐 ورود به کانال CIP":
         await join_cip_channel(update, context)
     elif text == "💳 خرید اشتراک":
         await buy_subscription(update, context)
