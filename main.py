@@ -14,7 +14,8 @@ from telegram import (
     ReplyKeyboardMarkup,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove,
+    ChatJoinRequest
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -23,7 +24,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
     ContextTypes,
-    ConversationHandler
+    ConversationHandler,
+    ChatJoinRequestHandler
 )
 from aiohttp import web
 
@@ -175,6 +177,35 @@ async def sync_user_data(user_id, user_data):
 
     return user_data
 
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: ارسال هشدار اشتراک
+# —————————————————————————————————————————————————————————————————————
+async def send_subscription_alert(bot, user_id, user_data):
+    """ارسال هشدار اتمام اشتراک به کاربر"""
+    subscription_types = []
+    if user_data.get("CIP", False):
+        subscription_types.append("کانال CIP")
+    if user_data.get("Hotline", False):
+        subscription_types.append("کانال اصلی")
+    
+    if not subscription_types:
+        return
+    
+    subscription_names = " و ".join(subscription_types)
+    message = (
+        f"⏳ از زمان اشتراک شما برای {subscription_names} فقط {user_data['days_left']} روز باقی مانده است!\n"
+        f"⚠️ لطفاً جهت جلوگیری از حذف دسترسی به کانال‌ها اشتراک خود را تمدید کنید.\n\n"
+        f"📞 برای تمدید اشتراک با پشتیبانی تماس بگیرید: {SUPPORT_ID}"
+    )
+    
+    try:
+        await bot.send_message(
+            chat_id=int(user_id),
+            text=message,
+            protect_content=True
+        )
+    except Exception as e:
+        logging.error(f"خطا در ارسال هشدار اشتراک به {user_id}: {e}")
 
 # —————————————————————————————————————————————————————————————————————
 # بخش دوم: احراز هویت و منوی اصلی (با تغییرات چیدمان)
@@ -242,6 +273,10 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # همگام‌سازی با گوگل شیت
     user_data = await sync_user_data(user_id, user_data)
     
+    # ارسال هشدار اگر اشتراک در حال اتمام است
+    if user_data.get("days_left", 0) <= SUBSCRIPTION_ALERT_DAYS:
+        await send_subscription_alert(context.bot, user_id, user_data)
+    
     # ذخیره کاربر جدید در دیتا
     users_data[user_id] = user_data
     save_data(users_data)
@@ -293,6 +328,10 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏳ روزهای باقی‌مانده: {user['days_left']}\n"
             f"📅 تاریخ انقضا: {expire_date}"
         )
+        
+        # ارسال هشدار اگر اشتراک در حال اتمام است
+        if user['days_left'] <= SUBSCRIPTION_ALERT_DAYS:
+            await send_subscription_alert(context.bot, user_id, user)
     else:
         message = "⚠️ شما اشتراک فعالی ندارید."
     
@@ -357,6 +396,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🔑 لینک دسترسی به کانال (۱۰ دقیقه اعتبار):\n\n"
         f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
+        f"⚠️ در صورت کپی و استفاده توسط دیگران، لینک نامعتبر خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -402,6 +442,7 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
         f"⚠️ توجه: این لینک فقط برای شما فعال است و برای کاربران دیگر کار نمی‌کند\n"
+        f"⚠️ در صورت کپی و استفاده توسط دیگران، لینک نامعتبر خواهد شد\n"
         f"⚠️ محدودیت: فقط {MAX_LINKS_PER_DAY} لینک در روز",
         reply_markup=InlineKeyboardMarkup(keyboard),
         protect_content=True  # غیرفعال کردن فوروارد و کپی
@@ -550,9 +591,9 @@ async def check_subscription_alerts(app):
             # تشخیص نوع اشتراک
             subscription_types = []
             if user.get("CIP", False):
-                subscription_types.append("کانال CIP")
+                subscription_types.append("CIP")
             if user.get("Hotline", False):
-                subscription_types.append("کانال اصلی")
+                subscription_types.append("Hotline")
             
             if not subscription_types:
                 logging.warning(f"کاربر {user_id} اشتراک فعال دارد اما نوع اشتراک تعریف نشده است")
@@ -828,6 +869,19 @@ async def handle_discount_value(update: Update, context: ContextTypes.DEFAULT_TY
     global DISCOUNT_CODE_10, DISCOUNT_CODE_20
     action = context.user_data.get("discount_action")
     new_code = update.message.text.strip()
+    
+    # لیست دستورات ممنوعه
+    forbidden_commands = [
+        "👥 لیست کاربران", "✏️ ویرایش اشتراک", "✏️ ویرایش کدهای تخفیف",
+        "🔄 همگام‌سازی داده‌ها", "🔙 بازگشت به منو", "📅 افزایش روز اشتراک",
+        "🔄 تنظیم تاریخ شروع", "🔛 فعال‌سازی CIP", "📡 فعال‌سازی Hotline",
+        "🔘 غیرفعال‌سازی CIP", "📴 غیرفعال‌سازی Hotline", "🔙 بازگشت",
+        "✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%"
+    ]
+    
+    if new_code in forbidden_commands:
+        await update.message.reply_text("❌ این کد با دستورات پنل تداخل دارد. لطفاً کد دیگری انتخاب کنید.")
+        return EDIT_DISCOUNT
     
     if action == "edit_10":
         DISCOUNT_CODE_10 = new_code
