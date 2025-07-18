@@ -223,9 +223,9 @@ def build_main_menu_keyboard(user_data):
     # ردیف دوم: دسترسی‌ها
     row2 = []
     if user_data.get("Hotline", False) and user_data.get("days_left", 0) > 0:
-        row2.append("🔑 ورود به کانال")
+        row2.append("🔑 Hotline ورود به کانال")
     if user_data.get("CIP", False) and user_data.get("days_left", 0) > 0:
-        row2.append("🌐 کانال CIP")
+        row2.append("🌐 ورود به کانال CIP")
     if row2:  # فقط اگر حداقل یک گزینه وجود داشته باشد
         keyboard.append(row2)
     
@@ -1058,9 +1058,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if text == "📅 اشتراک من":
         await my_subscription(update, context)
-    elif text == "🔑 Hotline ورود به کانال":
+    elif text == "🔑 ورود به کانال":
         await join_channel(update, context)
-    elif text == "🌐 ورود به کانال CIP":
+    elif text == "🌐 کانال CIP":
         await join_cip_channel(update, context)
     elif text == "💳 خرید اشتراک":
         await buy_subscription(update, context)
