@@ -7,9 +7,6 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 
-from dotenv import load_dotenv
-
-
 import requests
 from telegram import (
     Update,
@@ -1319,4 +1316,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
