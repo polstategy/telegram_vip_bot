@@ -7,6 +7,7 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 
+
 import requests
 from telegram import (
     Update,
@@ -49,6 +50,13 @@ YOUTUBE_URL = os.environ.get("YOUTUBE_URL", "https://youtube.com/example")
 DISCOUNT_CODE_10 = os.environ.get("DISCOUNT_CODE_10", "KHZD10")
 DISCOUNT_CODE_20 = os.environ.get("DISCOUNT_CODE_20", "KHZD20")
 
+# کلمات کلیدی و پاسخ‌های آنها
+KEYWORD_RESPONSES = os.environ.get("KEYWORD_RESPONSES", "{}")
+try:
+    KEYWORD_RESPONSES = json.loads(KEYWORD_RESPONSES)
+except:
+    KEYWORD_RESPONSES = {}
+
 DATA_FILE = "user_data.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
@@ -56,7 +64,7 @@ ALERT_INTERVAL_SECONDS = 300
 SUBSCRIPTION_ALERT_DAYS = 3  # تعداد روزهای مانده به پایان اشتراک برای ارسال هشدار
 
 # مراحل گفتگو برای پنل ادمین
-ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION, EDIT_DISCOUNT, MANAGE_KEYWORDS, KEYWORD_ACTION = range(7)
+ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION, EDIT_DISCOUNT, EDIT_KEYWORDS = range(6)
 
 # -------------------------------------------------------------
 
@@ -81,41 +89,37 @@ def save_data(data):
     except Exception as e:
         logging.error(f"خطا در ذخیره فایل داده‌ها: {e}")
 
-
-# ===== کلمات کلیدی: بارگذاری از فایل و ENV =====
-KEYWORDS_FILE = "keywords.json"
-
-def load_keywords_from_file():
-    if os.path.exists(KEYWORDS_FILE):
-        try:
-            with open(KEYWORDS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logging.error(f"خطا در بارگذاری keywords.json: {e}")
-            return {}
-    return {}
-
-def save_keywords_to_file(data):
+def save_keyword_responses():
+    """ذخیره کلمات کلیدی و پاسخ‌ها در فایل محیطی"""
     try:
-        with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        # به‌روزرسانی فایل محیطی
+        with open("POLsteratgy.env", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        # پیدا کردن خط KEYWORD_RESPONSES یا اضافه کردن آن
+        keyword_line = None
+        for i, line in enumerate(lines):
+            if line.startswith("KEYWORD_RESPONSES="):
+                keyword_line = i
+                break
+        
+        new_line = f"KEYWORD_RESPONSES={json.dumps(KEYWORD_RESPONSES, ensure_ascii=False)}\n"
+        
+        if keyword_line is not None:
+            lines[keyword_line] = new_line
+        else:
+            lines.append(new_line)
+        
+        with open("POLsteratgy.env", "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        
+        # به‌روزرسانی متغیر محیطی
+        os.environ["KEYWORD_RESPONSES"] = json.dumps(KEYWORD_RESPONSES, ensure_ascii=False)
+        
+        return True
     except Exception as e:
-        logging.error(f"خطا در ذخیره keywords.json: {e}")
-
-# از ENV هم (اختیاری) بارگذاری شود. فرمت: key:message|key2:message2
-KEYWORDS = load_keywords_from_file()
-KEYWORDS_ENV = os.environ.get("KEYWORDS", "")
-if KEYWORDS_ENV:
-    for item in KEYWORDS_ENV.split("|"):
-        if ":" in item:
-            k, v = item.split(":", 1)
-            k = k.strip().lower()
-            v = v.strip()
-            if k and v and k not in KEYWORDS:
-                KEYWORDS[k] = v
-# ذخیره ادغام‌شده
-if KEYWORDS:
-    save_keywords_to_file(KEYWORDS)
+        logging.error(f"خطا در ذخیره کلمات کلیدی: {e}")
+        return False
 
 users_data = load_data()
 
@@ -731,20 +735,14 @@ async def handle_admin_password(update: Update, context: ContextTypes.DEFAULT_TY
         await show_admin_dashboard(update, context)
         return ADMIN_ACTION
     else:
-        # پاسخ خودکار بر اساس کلمات کلیدی (از فایل/ENV)
-        lowered_text = (text or "").strip().lower()
-        if lowered_text in KEYWORDS:
-            await update.message.reply_text(KEYWORDS[lowered_text])
-        else:
-            await update.message.reply_text("⚠️ لطفاً از منوی اصلی یک گزینه را انتخاب کنید.")
+        await update.message.reply_text("❌ رمز عبور اشتباه است. لطفاً مجدداً تلاش کنید.")
         return ADMIN_LOGIN
 
 async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["👥 لیست کاربران", "✏️ ویرایش اشتراک"],
         ["✏️ ویرایش کدهای تخفیف", "🔄 همگام‌سازی داده‌ها"],
-        ["✏️ مدیریت کلمات کلیدی"],
-        ["🔙 بازگشت به منو"]
+        ["🔤 مدیریت کلمات کلیدی", "🔙 بازگشت به منو"]
     ]
     await update.message.reply_text(
         "🔧 پنل مدیریت ادمین",
@@ -971,7 +969,7 @@ async def handle_discount_value(update: Update, context: ContextTypes.DEFAULT_TY
         "🔄 همگام‌سازی داده‌ها", "🔙 بازگشت به منو", "📅 افزایش روز اشتراک",
         "🔄 تنظیم تاریخ شروع", "🔛 فعال‌سازی CIP", "📡 فعال‌سازی Hotline",
         "🔘 غیرفعال‌سازی CIP", "📴 غیرفعال‌سازی Hotline", "🔙 بازگشت",
-        "✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%"
+        "✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%", "🔤 مدیریت کلمات کلیدی"
     ]
     
     if new_code in forbidden_commands:
@@ -994,6 +992,138 @@ async def sync_all_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
             count += 1
     await update.message.reply_text(f"✅ {count} کاربر با گوگل شیت همگام‌سازی شدند")
     return ADMIN_ACTION
+
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: مدیریت کلمات کلیدی و پاسخ‌ها
+# —————————————————————————————————————————————————————————————————————
+async def edit_keywords_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع مدیریت کلمات کلیدی"""
+    if not KEYWORD_RESPONSES:
+        message = "📝 هیچ کلمه کلیدی تعریف نشده است."
+    else:
+        message = "📝 کلمات کلیدی فعلی:\n\n"
+        for keyword, response in KEYWORD_RESPONSES.items():
+            message += f"🔹 {keyword}: {response[:50]}...\n"
+    
+    keyboard = [
+        ["➕ افزودن کلمه کلیدی", "✏️ ویرایش کلمه کلیدی"],
+        ["🗑️ حذف کلمه کلیدی", "🔙 بازگشت"]
+    ]
+    
+    await update.message.reply_text(
+        message,
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+    return EDIT_KEYWORDS
+
+async def handle_keywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت عملیات کلمات کلیدی"""
+    action = update.message.text
+    
+    if action == "➕ افزودن کلمه کلیدی":
+        await update.message.reply_text(
+            "لطفاً کلمه کلیدی جدید را وارد کنید:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data["keyword_action"] = "add_keyword"
+        return EDIT_KEYWORDS
+    
+    elif action == "✏️ ویرایش کلمه کلیدی":
+        if not KEYWORD_RESPONSES:
+            await update.message.reply_text("❌ هیچ کلمه کلیدی برای ویرایش وجود ندارد.")
+            return await edit_keywords_start(update, context)
+        
+        keyboard = [[k] for k in KEYWORD_RESPONSES.keys()]
+        keyboard.append(["🔙 بازگشت"])
+        
+        await update.message.reply_text(
+            "لطفاً کلمه کلیدی برای ویرایش انتخاب کنید:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        context.user_data["keyword_action"] = "edit_keyword"
+        return EDIT_KEYWORDS
+    
+    elif action == "🗑️ حذف کلمه کلیدی":
+        if not KEYWORD_RESPONSES:
+            await update.message.reply_text("❌ هیچ کلمه کلیدی برای حذف وجود ندارد.")
+            return await edit_keywords_start(update, context)
+        
+        keyboard = [[k] for k in KEYWORD_RESPONSES.keys()]
+        keyboard.append(["🔙 بازگشت"])
+        
+        await update.message.reply_text(
+            "لطفاً کلمه کلیدی برای حذف انتخاب کنید:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        context.user_data["keyword_action"] = "delete_keyword"
+        return EDIT_KEYWORDS
+    
+    elif action == "🔙 بازگشت":
+        return await show_admin_dashboard(update, context)
+
+async def handle_keyword_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت انتخاب کلمه کلیدی"""
+    keyword = update.message.text
+    action = context.user_data.get("keyword_action")
+    
+    if action == "edit_keyword":
+        if keyword in KEYWORD_RESPONSES:
+            context.user_data["selected_keyword"] = keyword
+            await update.message.reply_text(
+                f"کلمه کلیدی انتخاب شده: {keyword}\n"
+                f"پاسخ فعلی: {KEYWORD_RESPONSES[keyword]}\n\n"
+                "لطفاً پاسخ جدید را وارد کنید:",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            context.user_data["keyword_action"] = "edit_response"
+        else:
+            await update.message.reply_text("❌ کلمه کلیدی یافت نشد.")
+            return await edit_keywords_start(update, context)
+    
+    elif action == "delete_keyword":
+        if keyword in KEYWORD_RESPONSES:
+            del KEYWORD_RESPONSES[keyword]
+            if save_keyword_responses():
+                await update.message.reply_text(f"✅ کلمه کلیدی '{keyword}' حذف شد.")
+            else:
+                await update.message.reply_text("❌ خطا در حذف کلمه کلیدی.")
+            return await edit_keywords_start(update, context)
+        else:
+            await update.message.reply_text("❌ کلمه کلیدی یافت نشد.")
+            return await edit_keywords_start(update, context)
+    
+    return EDIT_KEYWORDS
+
+async def handle_keyword_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت پاسخ کلمات کلیدی"""
+    response_text = update.message.text
+    action = context.user_data.get("keyword_action")
+    
+    if action == "add_keyword":
+        # مرحله بعدی: دریافت پاسخ برای کلمه کلیدی جدید
+        context.user_data["new_keyword"] = response_text
+        await update.message.reply_text("لطفاً پاسخ برای این کلمه کلیدی را وارد کنید:")
+        context.user_data["keyword_action"] = "add_response"
+    
+    elif action == "add_response":
+        keyword = context.user_data.get("new_keyword")
+        KEYWORD_RESPONSES[keyword] = response_text
+        if save_keyword_responses():
+            await update.message.reply_text(f"✅ کلمه کلیدی '{keyword}' با پاسخ مربوطه اضافه شد.")
+        else:
+            await update.message.reply_text("❌ خطا در ذخیره کلمه کلیدی.")
+        return await edit_keywords_start(update, context)
+    
+    elif action == "edit_response":
+        keyword = context.user_data.get("selected_keyword")
+        KEYWORD_RESPONSES[keyword] = response_text
+        if save_keyword_responses():
+            await update.message.reply_text(f"✅ پاسخ کلمه کلیدی '{keyword}' به‌روزرسانی شد.")
+        else:
+            await update.message.reply_text("❌ خطا در به‌روزرسانی پاسخ.")
+        return await edit_keywords_start(update, context)
+    
+    return EDIT_KEYWORDS
 
 async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -1089,99 +1219,24 @@ async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👨‍💻 برای پشتیبانی لطفاً به آیدی زیر پیام دهید:\n{SUPPORT_ID}")
 
-# —————————————————————————————————————————————————————————————————————
-# مدیریت کلمات کلیدی (پنل ادمین)
-# —————————————————————————————————————————————————————————————————————
-
-async def manage_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # نمایش لیست و منوی مدیریت
-    if not KEYWORDS:
-        msg = "❌ هیچ کلمه کلیدی ثبت نشده است."
-    else:
-        lines = [f"🔑 {k} → {v}" for k, v in KEYWORDS.items()]
-        msg = "📋 لیست کلمات کلیدی:\n" + "\n".join(lines)
-
-    keyboard = [
-        ["➕ افزودن کلمه"], ["✏️ ویرایش متن"], ["❌ حذف کلمه"],
-        ["🔙 بازگشت به منو"]
-    ]
-    if update.message:
-        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
-    else:
-        await update.callback_query.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
-    return MANAGE_KEYWORDS
-
-async def handle_keywords_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    t = (update.message.text or "").strip()
-    if t == "➕ افزودن کلمه":
-        await update.message.reply_text("کلمه و متن را وارد کنید (فرمت: کلمه:متن)")
-        context.user_data["kw_action"] = "add"
-        return KEYWORD_ACTION
-    elif t == "✏️ ویرایش متن":
-        await update.message.reply_text("نام کلمه‌ای که می‌خواهید متنش را عوض کنید بنویسید:")
-        context.user_data["kw_action"] = "edit"
-        return KEYWORD_ACTION
-    elif t == "❌ حذف کلمه":
-        await update.message.reply_text("نام کلمه‌ای که می‌خواهید حذف شود را بنویسید:")
-        context.user_data["kw_action"] = "delete"
-        return KEYWORD_ACTION
-    elif t == "🔙 بازگشت به منو":
-        await show_admin_dashboard(update, context)
-        return ADMIN_ACTION
-    else:
-        await update.message.reply_text("گزینه نامعتبر. لطفاً از منو استفاده کنید.")
-        return MANAGE_KEYWORDS
-
-async def handle_keyword_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    action = context.user_data.get("kw_action")
-    txt = (update.message.text or "").strip()
-    lower = txt.lower()
-
-    if action == "add":
-        if ":" not in txt:
-            await update.message.reply_text("❌ فرمت نادرست. مثال: hotline:سلام برای اشتراک واریز نمایید")
-            return MANAGE_KEYWORDS
-        key, val = txt.split(":", 1)
-        key = key.strip().lower()
-        val = val.strip()
-        if not key or not val:
-            await update.message.reply_text("❌ مقدار خالی مجاز نیست.")
-            return MANAGE_KEYWORDS
-        KEYWORDS[key] = val
-        save_keywords_to_file(KEYWORDS)
-        await update.message.reply_text(f"✅ کلمه '{key}' افزوده شد.")
-        return await manage_keywords(update, context)
-
-    if action == "edit":
-        if lower not in KEYWORDS:
-            await update.message.reply_text("❌ این کلمه وجود ندارد. ابتدا همان نام کلمه را بفرستید.")
-            return MANAGE_KEYWORDS
-        context.user_data["edit_kw"] = lower
-        await update.message.reply_text("متن جدید را ارسال کنید:")
-        context.user_data["kw_action"] = "edit_value"
-        return KEYWORD_ACTION
-
-    if action == "edit_value":
-        key = context.user_data.get("edit_kw")
-        if not key:
-            await update.message.reply_text("❌ ابتدا کلمه را انتخاب کنید.")
-            return MANAGE_KEYWORDS
-        KEYWORDS[key] = txt
-        save_keywords_to_file(KEYWORDS)
-        await update.message.reply_text(f"✅ متن کلمه '{key}' به‌روزرسانی شد.")
-        return await manage_keywords(update, context)
-
-    if action == "delete":
-        if lower in KEYWORDS:
-            del KEYWORDS[lower]
-            save_keywords_to_file(KEYWORDS)
-            await update.message.reply_text(f"✅ کلمه '{lower}' حذف شد.")
-        else:
-            await update.message.reply_text("❌ این کلمه وجود ندارد.")
-        return await manage_keywords(update, context)
-
-    await update.message.reply_text("❌ عملیات نامشخص.")
-    return MANAGE_KEYWORDS
+async def handle_keyword_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش پیام‌های حاوی کلمات کلیدی"""
+    text = update.message.text.strip().lower()
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    
+    if not user:
+        await update.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
+        return
+    
+    # بررسی کلمات کلیدی
+    for keyword, response in KEYWORD_RESPONSES.items():
+        if keyword.lower() in text:
+            await update.message.reply_text(response)
+            return
+    
+    # اگر کلمه کلیدی پیدا نشد، به هندلر اصلی برو
+    await handle_text(update, context)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -1256,12 +1311,10 @@ async def main():
                 MessageHandler(filters.Regex("^✏️ ویرایش اشتراک$"), edit_subscription_start),
                 MessageHandler(filters.Regex("^✏️ ویرایش کدهای تخفیف$"), edit_discount_start),
                 MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
-                MessageHandler(filters.Regex("^✏️ مدیریت کلمات کلیدی$"), manage_keywords),
+                MessageHandler(filters.Regex("^🔤 مدیریت کلمات کلیدی$"), edit_keywords_start),
                 MessageHandler(filters.Regex("^🔙 بازگشت به منو$"), admin_logout),
             ],
             SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
-            MANAGE_KEYWORDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keywords_menu)],
-            KEYWORD_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_action)],
             EDIT_SUBSCRIPTION: [
                 MessageHandler(filters.Regex("^(📅 افزایش روز اشتراک|🔄 تنظیم تاریخ شروع|🔛 فعال‌سازی CIP|📡 فعال‌سازی Hotline|🔘 غیرفعال‌سازی CIP|📴 غیرفعال‌سازی Hotline|🔙 بازگشت)$"), handle_subscription_edit),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_value)
@@ -1269,6 +1322,11 @@ async def main():
             EDIT_DISCOUNT: [
                 MessageHandler(filters.Regex("^(✏️ ویرایش کد 10%|✏️ ویرایش کد 20%|🔙 بازگشت)$"), handle_discount_edit),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_discount_value)
+            ],
+            EDIT_KEYWORDS: [
+                MessageHandler(filters.Regex("^(➕ افزودن کلمه کلیدی|✏️ ویرایش کلمه کلیدی|🗑️ حذف کلمه کلیدی|🔙 بازگشت)$"), handle_keywords_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_selection),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_response)
             ]
         },
         fallbacks=[CommandHandler("admin", admin_login)]
@@ -1278,7 +1336,10 @@ async def main():
     app.add_handler(admin_conv_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # تغییر هندلر متن برای پشتیبانی از کلمات کلیدی
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_messages))
+    
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
     app.add_handler(CallbackQueryHandler(asset_selected, pattern=r"^asset\|"))
     app.add_handler(CallbackQueryHandler(analysis_back, pattern=r"^analysis\|back$"))
@@ -1316,5 +1377,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
