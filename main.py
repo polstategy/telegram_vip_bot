@@ -8,6 +8,7 @@ import re
 from datetime import datetime, timedelta
 
 
+
 import requests
 from telegram import (
     Update,
@@ -50,21 +51,17 @@ YOUTUBE_URL = os.environ.get("YOUTUBE_URL", "https://youtube.com/example")
 DISCOUNT_CODE_10 = os.environ.get("DISCOUNT_CODE_10", "KHZD10")
 DISCOUNT_CODE_20 = os.environ.get("DISCOUNT_CODE_20", "KHZD20")
 
-# کلمات کلیدی و پاسخ‌های آنها
-KEYWORD_RESPONSES = os.environ.get("KEYWORD_RESPONSES", "{}")
-try:
-    KEYWORD_RESPONSES = json.loads(KEYWORD_RESPONSES)
-except:
-    KEYWORD_RESPONSES = {}
-
 DATA_FILE = "user_data.json"
+KEYWORDS_FILE = "keywords.json"
+REGISTRATION_OPTIONS_FILE = "registration_options.json"
+REGISTRATIONS_FILE = "registrations.json"
 LINK_EXPIRE_MINUTES = 10
 MAX_LINKS_PER_DAY = 5
 ALERT_INTERVAL_SECONDS = 300
 SUBSCRIPTION_ALERT_DAYS = 3  # تعداد روزهای مانده به پایان اشتراک برای ارسال هشدار
 
 # مراحل گفتگو برای پنل ادمین
-ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION, EDIT_DISCOUNT, EDIT_KEYWORDS = range(6)
+ADMIN_LOGIN, ADMIN_ACTION, SELECT_USER, EDIT_SUBSCRIPTION, EDIT_DISCOUNT, EDIT_KEYWORDS, EDIT_REGISTRATION_OPTIONS = range(7)
 
 # -------------------------------------------------------------
 
@@ -89,39 +86,75 @@ def save_data(data):
     except Exception as e:
         logging.error(f"خطا در ذخیره فایل داده‌ها: {e}")
 
-def save_keyword_responses():
-    """ذخیره کلمات کلیدی و پاسخ‌ها در فایل محیطی"""
+def load_keywords():
+    """بارگذاری کلمات کلیدی از فایل JSON"""
+    if os.path.exists(KEYWORDS_FILE):
+        try:
+            with open(KEYWORDS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"خطا در بارگیری فایل کلمات کلیدی: {e}")
+            return {}
+    return {}
+
+def save_keywords(keywords):
+    """ذخیره کلمات کلیدی در فایل JSON"""
     try:
-        # به‌روزرسانی فایل محیطی
-        with open("POLsteratgy.env", "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(keywords, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        logging.error(f"خطا در ذخیره فایل کلمات کلیدی: {e}")
+        return False
+
+def load_registration_options():
+    """بارگذاری گزینه‌های ثبت‌نام از فایل JSON"""
+    if os.path.exists(REGISTRATION_OPTIONS_FILE):
+        try:
+            with open(REGISTRATION_OPTIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"خطا در بارگیری فایل گزینه‌های ثبت‌نام: {e}")
+            return []
+    return []
+
+def save_registration_options(options):
+    """ذخیره گزینه‌های ثبت‌نام در فایل JSON"""
+    try:
+        with open(REGISTRATION_OPTIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(options, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        logging.error(f"خطا در ذخیره فایل گزینه‌های ثبت‌نام: {e}")
+        return False
+
+def save_registration(registration_data):
+    """ذخیره اطلاعات ثبت‌نام در فایل"""
+    try:
+        # بارگذاری ثبت‌نام‌های موجود
+        registrations = []
+        if os.path.exists(REGISTRATIONS_FILE):
+            with open(REGISTRATIONS_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        registrations.append(json.loads(line))
         
-        # پیدا کردن خط KEYWORD_RESPONSES یا اضافه کردن آن
-        keyword_line = None
-        for i, line in enumerate(lines):
-            if line.startswith("KEYWORD_RESPONSES="):
-                keyword_line = i
-                break
+        # اضافه کردن ثبت‌نام جدید
+        registrations.append(registration_data)
         
-        new_line = f"KEYWORD_RESPONSES={json.dumps(KEYWORD_RESPONSES, ensure_ascii=False)}\n"
-        
-        if keyword_line is not None:
-            lines[keyword_line] = new_line
-        else:
-            lines.append(new_line)
-        
-        with open("POLsteratgy.env", "w", encoding="utf-8") as f:
-            f.writelines(lines)
-        
-        # به‌روزرسانی متغیر محیطی
-        os.environ["KEYWORD_RESPONSES"] = json.dumps(KEYWORD_RESPONSES, ensure_ascii=False)
+        # ذخیره تمام ثبت‌نام‌ها
+        with open(REGISTRATIONS_FILE, "w", encoding="utf-8") as f:
+            for reg in registrations:
+                f.write(json.dumps(reg, ensure_ascii=False) + "\n")
         
         return True
     except Exception as e:
-        logging.error(f"خطا در ذخیره کلمات کلیدی: {e}")
+        logging.error(f"خطا در ذخیره اطلاعات ثبت‌نام: {e}")
         return False
 
 users_data = load_data()
+keywords_data = load_keywords()
+registration_options = load_registration_options()
 
 def normalize_phone(phone):
     """نرمال‌سازی شماره تلفن"""
@@ -156,6 +189,23 @@ async def update_user_in_sheet(user_data):
         return response.status_code == 200
     except Exception as e:
         logging.error(f"خطا در به‌روزرسانی Google Sheet: {e}")
+        return False
+
+async def send_registration_to_sheet(name, phone, reg_option):
+    """ارسال اطلاعات ثبت‌نام به گوگل شیت"""
+    try:
+        payload = {
+            "action": "reg",
+            "name": name,
+            "phone": phone,
+            "reg": reg_option
+        }
+        logging.info(f"ارسال داده ثبت‌نام به گوگل شیت: {payload}")
+        response = requests.post(GOOGLE_SHEET_URL, json=payload, timeout=30)
+        logging.info(f"پاسخ گوگل شیت برای ثبت‌نام: {response.status_code} - {response.text}")
+        return response.status_code == 200
+    except Exception as e:
+        logging.error(f"خطا در ارسال ثبت‌نام به Google Sheet: {e}")
         return False
 
 async def get_user_from_sheet(phone):
@@ -269,14 +319,20 @@ def build_main_menu_keyboard(user_data):
     if row2:  # فقط اگر حداقل یک گزینه وجود داشته باشد
         keyboard.append(row2)
     
-    # ردیف سوم: خرید اشتراک و پشتیبانی
+    # ردیف سوم: گزینه‌های ثبت‌نام (اگر وجود داشته باشد)
+    if registration_options:
+        for i in range(0, len(registration_options), 2):
+            row = registration_options[i:i+2]
+            keyboard.append(row)
+    
+    # ردیف بعدی: خرید اشتراک و پشتیبانی
     keyboard.append(["💳 خرید اشتراک", "🛟 پشتیبانی"])
     
-    # ردیف چهارم: اخبار، ارتباط با ما و کد تخفیف
+    # ردیف بعدی: اخبار، ارتباط با ما و کد تخفیف
     keyboard.append(["📰 اخبار اقتصادی فارکس", "📞 ارتباط با ما"])
     keyboard.append(["🔰 کد تخفیف پراپفرم ForFx"])
     
-    # ردیف پنجم: بازگشت به منو
+    # ردیف آخر: بازگشت به منو
     keyboard.append(["🔙 بازگشت به منو"])
     
     return keyboard
@@ -742,7 +798,8 @@ async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = [
         ["👥 لیست کاربران", "✏️ ویرایش اشتراک"],
         ["✏️ ویرایش کدهای تخفیف", "🔄 همگام‌سازی داده‌ها"],
-        ["🔤 مدیریت کلمات کلیدی", "🔙 بازگشت به منو"]
+        ["🔤 مدیریت کلمات کلیدی", "📝 مدیریت ثبت‌نام"],
+        ["🔙 بازگشت به منو"]
     ]
     await update.message.reply_text(
         "🔧 پنل مدیریت ادمین",
@@ -965,11 +1022,12 @@ async def handle_discount_value(update: Update, context: ContextTypes.DEFAULT_TY
     
     # لیست دستورات ممنوعه
     forbidden_commands = [
-        "👥 لیست کاربران", "✏️ ویرایش اشتراک", "✏️ ویرایش کدهای تخفیف",
+        "👥 لیست کاربران", "✏️ ویرایش اشترак", "✏️ ویرایش کدهای تخفیف",
         "🔄 همگام‌سازی داده‌ها", "🔙 بازگشت به منو", "📅 افزایش روز اشتراک",
         "🔄 تنظیم تاریخ شروع", "🔛 فعال‌سازی CIP", "📡 فعال‌سازی Hotline",
         "🔘 غیرفعال‌سازی CIP", "📴 غیرفعال‌سازی Hotline", "🔙 بازگشت",
-        "✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%", "🔤 مدیریت کلمات کلیدی"
+        "✏️ ویرایش کد 10%", "✏️ ویرایش کد 20%", "🔤 مدیریت کلمات کلیدی",
+        "📝 مدیریت ثبت‌نام"
     ]
     
     if new_code in forbidden_commands:
@@ -994,15 +1052,17 @@ async def sync_all_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADMIN_ACTION
 
 # —————————————————————————————————————————————————————————————————————
-# بخش جدید: مدیریت کلمات کلیدی و پاسخ‌ها
+# بخش جدید: مدیریت کلمات کلیدی و پاسخ‌ها (با استفاده از فایل JSON)
 # —————————————————————————————————————————————————————————————————————
 async def edit_keywords_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع مدیریت کلمات کلیدی"""
-    if not KEYWORD_RESPONSES:
+    global keywords_data
+    
+    if not keywords_data:
         message = "📝 هیچ کلمه کلیدی تعریف نشده است."
     else:
         message = "📝 کلمات کلیدی فعلی:\n\n"
-        for keyword, response in KEYWORD_RESPONSES.items():
+        for keyword, response in keywords_data.items():
             message += f"🔹 {keyword}: {response[:50]}...\n"
     
     keyboard = [
@@ -1018,6 +1078,7 @@ async def edit_keywords_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_keywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت عملیات کلمات کلیدی"""
+    global keywords_data
     action = update.message.text
     
     if action == "➕ افزودن کلمه کلیدی":
@@ -1029,11 +1090,11 @@ async def handle_keywords_edit(update: Update, context: ContextTypes.DEFAULT_TYP
         return EDIT_KEYWORDS
     
     elif action == "✏️ ویرایش کلمه کلیدی":
-        if not KEYWORD_RESPONSES:
+        if not keywords_data:
             await update.message.reply_text("❌ هیچ کلمه کلیدی برای ویرایش وجود ندارد.")
             return await edit_keywords_start(update, context)
         
-        keyboard = [[k] for k in KEYWORD_RESPONSES.keys()]
+        keyboard = [[k] for k in keywords_data.keys()]
         keyboard.append(["🔙 بازگشت"])
         
         await update.message.reply_text(
@@ -1044,11 +1105,11 @@ async def handle_keywords_edit(update: Update, context: ContextTypes.DEFAULT_TYP
         return EDIT_KEYWORDS
     
     elif action == "🗑️ حذف کلمه کلیدی":
-        if not KEYWORD_RESPONSES:
+        if not keywords_data:
             await update.message.reply_text("❌ هیچ کلمه کلیدی برای حذف وجود ندارد.")
             return await edit_keywords_start(update, context)
         
-        keyboard = [[k] for k in KEYWORD_RESPONSES.keys()]
+        keyboard = [[k] for k in keywords_data.keys()]
         keyboard.append(["🔙 بازگشت"])
         
         await update.message.reply_text(
@@ -1060,18 +1121,42 @@ async def handle_keywords_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     
     elif action == "🔙 بازگشت":
         return await show_admin_dashboard(update, context)
+    
+    return EDIT_KEYWORDS
 
-async def handle_keyword_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت انتخاب کلمه کلیدی"""
-    keyword = update.message.text
+async def handle_keyword_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش ورودی کاربر برای کلمات کلیدی"""
+    global keywords_data
+    user_input = update.message.text
     action = context.user_data.get("keyword_action")
     
-    if action == "edit_keyword":
-        if keyword in KEYWORD_RESPONSES:
-            context.user_data["selected_keyword"] = keyword
+    # اگر کاربر می‌خواهد بازگردد
+    if user_input == "🔙 بازگشت":
+        return await edit_keywords_start(update, context)
+    
+    if action == "add_keyword":
+        # ذخیره کلمه کلیدی موقت و درخواست پاسخ
+        context.user_data["new_keyword"] = user_input
+        await update.message.reply_text("لطفاً پاسخ برای این کلمه کلیدی را وارد کنید:")
+        context.user_data["keyword_action"] = "add_response"
+        return EDIT_KEYWORDS
+    
+    elif action == "add_response":
+        keyword = context.user_data.get("new_keyword")
+        keywords_data[keyword] = user_input
+        if save_keywords(keywords_data):
+            await update.message.reply_text(f"✅ کلمه کلیدی '{keyword}' با پاسخ مربوطه اضافه شد.")
+        else:
+            await update.message.reply_text("❌ خطا در ذخیره کلمه کلیدی.")
+        # بازگشت به منوی مدیریت کلمات کلیدی
+        return await edit_keywords_start(update, context)
+    
+    elif action == "edit_keyword":
+        if user_input in keywords_data:
+            context.user_data["selected_keyword"] = user_input
             await update.message.reply_text(
-                f"کلمه کلیدی انتخاب شده: {keyword}\n"
-                f"پاسخ فعلی: {KEYWORD_RESPONSES[keyword]}\n\n"
+                f"کلمه کلیدی انتخاب شده: {user_input}\n"
+                f"پاسخ فعلی: {keywords_data[user_input]}\n\n"
                 "لطفاً پاسخ جدید را وارد کنید:",
                 reply_markup=ReplyKeyboardRemove()
             )
@@ -1079,51 +1164,161 @@ async def handle_keyword_selection(update: Update, context: ContextTypes.DEFAULT
         else:
             await update.message.reply_text("❌ کلمه کلیدی یافت نشد.")
             return await edit_keywords_start(update, context)
-    
-    elif action == "delete_keyword":
-        if keyword in KEYWORD_RESPONSES:
-            del KEYWORD_RESPONSES[keyword]
-            if save_keyword_responses():
-                await update.message.reply_text(f"✅ کلمه کلیدی '{keyword}' حذف شد.")
-            else:
-                await update.message.reply_text("❌ خطا در حذف کلمه کلیدی.")
-            return await edit_keywords_start(update, context)
-        else:
-            await update.message.reply_text("❌ کلمه کلیدی یافت نشد.")
-            return await edit_keywords_start(update, context)
-    
-    return EDIT_KEYWORDS
-
-async def handle_keyword_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت پاسخ کلمات کلیدی"""
-    response_text = update.message.text
-    action = context.user_data.get("keyword_action")
-    
-    if action == "add_keyword":
-        # مرحله بعدی: دریافت پاسخ برای کلمه کلیدی جدید
-        context.user_data["new_keyword"] = response_text
-        await update.message.reply_text("لطفاً پاسخ برای این کلمه کلیدی را وارد کنید:")
-        context.user_data["keyword_action"] = "add_response"
-    
-    elif action == "add_response":
-        keyword = context.user_data.get("new_keyword")
-        KEYWORD_RESPONSES[keyword] = response_text
-        if save_keyword_responses():
-            await update.message.reply_text(f"✅ کلمه کلیدی '{keyword}' با پاسخ مربوطه اضافه شد.")
-        else:
-            await update.message.reply_text("❌ خطا در ذخیره کلمه کلیدی.")
-        return await edit_keywords_start(update, context)
+        return EDIT_KEYWORDS
     
     elif action == "edit_response":
         keyword = context.user_data.get("selected_keyword")
-        KEYWORD_RESPONSES[keyword] = response_text
-        if save_keyword_responses():
+        keywords_data[keyword] = user_input
+        if save_keywords(keywords_data):
             await update.message.reply_text(f"✅ پاسخ کلمه کلیدی '{keyword}' به‌روزرسانی شد.")
         else:
             await update.message.reply_text("❌ خطا در به‌روزرسانی پاسخ.")
         return await edit_keywords_start(update, context)
     
-    return EDIT_KEYWORDS
+    elif action == "delete_keyword":
+        if user_input in keywords_data:
+            del keywords_data[user_input]
+            if save_keywords(keywords_data):
+                await update.message.reply_text(f"✅ کلمه کلیدی '{user_input}' حذف شد.")
+            else:
+                await update.message.reply_text("❌ خطا در حذف کلمه کلیدی.")
+        else:
+            await update.message.reply_text("❌ کلمه کلیدی یافت نشد.")
+        return await edit_keywords_start(update, context)
+    
+    # اگر عمل‌شناسی نشد، به منوی اصلی برگرد
+    return await edit_keywords_start(update, context)
+
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: مدیریت گزینه‌های ثبت‌نام
+# —————————————————————————————————————————————————————————————————————
+async def edit_registration_options_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع مدیریت گزینه‌های ثبت‌نام"""
+    global registration_options
+    
+    if not registration_options:
+        message = "📝 هیچ گزینه ثبت‌نامی تعریف نشده است."
+    else:
+        message = "📝 گزینه‌های ثبت‌نام فعلی:\n\n"
+        for option in registration_options:
+            message += f"🔹 {option}\n"
+    
+    keyboard = [
+        ["➕ افزودن گزینه ثبت‌نام", "🗑️ حذف گزینه ثبت‌نام"],
+        ["🔙 بازگشت"]
+    ]
+    
+    await update.message.reply_text(
+        message,
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+    return EDIT_REGISTRATION_OPTIONS
+
+async def handle_registration_options_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت عملیات گزینه‌های ثبت‌نام"""
+    global registration_options
+    action = update.message.text
+    
+    if action == "➕ افزودن گزینه ثبت‌نام":
+        await update.message.reply_text(
+            "لطفاً عنوان گزینه ثبت‌نام جدید را وارد کنید:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data["reg_action"] = "add_option"
+        return EDIT_REGISTRATION_OPTIONS
+    
+    elif action == "🗑️ حذف گزینه ثبت‌نام":
+        if not registration_options:
+            await update.message.reply_text("❌ هیچ گزینه ثبت‌نامی برای حذف وجود ندارد.")
+            return await edit_registration_options_start(update, context)
+        
+        keyboard = [[option] for option in registration_options]
+        keyboard.append(["🔙 بازگشت"])
+        
+        await update.message.reply_text(
+            "لطفاً گزینه ثبت‌نام برای حذف انتخاب کنید:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        context.user_data["reg_action"] = "delete_option"
+        return EDIT_REGISTRATION_OPTIONS
+    
+    elif action == "🔙 بازگشت":
+        return await show_admin_dashboard(update, context)
+    
+    return EDIT_REGISTRATION_OPTIONS
+
+async def handle_registration_option_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش ورودی کاربر برای گزینه‌های ثبت‌نام"""
+    global registration_options
+    user_input = update.message.text
+    action = context.user_data.get("reg_action")
+    
+    # اگر کاربر می‌خواهد بازگردد
+    if user_input == "🔙 بازگشت":
+        return await edit_registration_options_start(update, context)
+    
+    if action == "add_option":
+        if user_input in registration_options:
+            await update.message.reply_text("❌ این گزینه قبلاً اضافه شده است.")
+            return await edit_registration_options_start(update, context)
+        
+        registration_options.append(user_input)
+        if save_registration_options(registration_options):
+            await update.message.reply_text(f"✅ گزینه ثبت‌نام '{user_input}' اضافه شد.")
+        else:
+            await update.message.reply_text("❌ خطا در ذخیره گزینه ثبت‌نام.")
+        return await edit_registration_options_start(update, context)
+    
+    elif action == "delete_option":
+        if user_input in registration_options:
+            registration_options.remove(user_input)
+            if save_registration_options(registration_options):
+                await update.message.reply_text(f"✅ گزینه ثبت‌نام '{user_input}' حذف شد.")
+            else:
+                await update.message.reply_text("❌ خطا در حذف گزینه ثبت‌نام.")
+        else:
+            await update.message.reply_text("❌ گزینه ثبت‌نام یافت نشد.")
+        return await edit_registration_options_start(update, context)
+    
+    return EDIT_REGISTRATION_OPTIONS
+
+# —————————————————————————————————————————————————————————————————————
+# بخش جدید: پردازش ثبت‌نام کاربران
+# —————————————————————————————————————————————————————————————————————
+async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش درخواست ثبت‌نام کاربر"""
+    user_id = str(update.effective_user.id)
+    user = users_data.get(user_id)
+    option = update.message.text
+    
+    if not user:
+        await update.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
+        return
+    
+    # ذخیره اطلاعات ثبت‌نام
+    registration_data = {
+        "user_id": user_id,
+        "name": user.get("name", ""),
+        "phone": user.get("phone", ""),
+        "option": option,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    # ذخیره در فایل محلی
+    if save_registration(registration_data):
+        # ارسال به گوگل شیت
+        success = await send_registration_to_sheet(
+            user.get("name", ""), 
+            user.get("phone", ""), 
+            option
+        )
+        
+        if success:
+            await update.message.reply_text("✅ ثبت‌نام شما با موفقیت انجام شد.")
+        else:
+            await update.message.reply_text("⚠️ ثبت‌نام شما ذخیره شد اما ارسال به گوگل شیت با مشکل مواجه شد.")
+    else:
+        await update.message.reply_text("❌ خطا در ثبت‌نام. لطفاً با پشتیبانی تماس بگیرید.")
 
 async def admin_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -1221,7 +1416,8 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_keyword_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش پیام‌های حاوی کلمات کلیدی"""
-    text = update.message.text.strip().lower()
+    global keywords_data, registration_options
+    text = update.message.text.strip()
     user_id = str(update.effective_user.id)
     user = users_data.get(user_id)
     
@@ -1229,13 +1425,19 @@ async def handle_keyword_messages(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("⚠️ لطفاً ابتدا احراز هویت کنید (/start).")
         return
     
-    # بررسی کلمات کلیدی
-    for keyword, response in KEYWORD_RESPONSES.items():
-        if keyword.lower() in text:
+    # اول بررسی می‌کنیم آیا این پیام یک گزینه ثبت‌نام است؟
+    if text in registration_options:
+        await handle_registration(update, context)
+        return
+    
+    # سپس کلمات کلیدی را بررسی می‌کنیم
+    text_lower = text.lower()
+    for keyword, response in keywords_data.items():
+        if keyword.lower() in text_lower:
             await update.message.reply_text(response)
             return
     
-    # اگر کلمه کلیدی پیدا نشد، به هندلر اصلی برو
+    # اگر هیچکدام نبود، به هندلر اصلی برو
     await handle_text(update, context)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1312,6 +1514,7 @@ async def main():
                 MessageHandler(filters.Regex("^✏️ ویرایش کدهای تخفیف$"), edit_discount_start),
                 MessageHandler(filters.Regex("^🔄 همگام‌سازی داده‌ها$"), sync_all_data),
                 MessageHandler(filters.Regex("^🔤 مدیریت کلمات کلیدی$"), edit_keywords_start),
+                MessageHandler(filters.Regex("^📝 مدیریت ثبت‌نام$"), edit_registration_options_start),
                 MessageHandler(filters.Regex("^🔙 بازگشت به منو$"), admin_logout),
             ],
             SELECT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_selection)],
@@ -1325,8 +1528,11 @@ async def main():
             ],
             EDIT_KEYWORDS: [
                 MessageHandler(filters.Regex("^(➕ افزودن کلمه کلیدی|✏️ ویرایش کلمه کلیدی|🗑️ حذف کلمه کلیدی|🔙 بازگشت)$"), handle_keywords_edit),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_selection),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_response)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_input)
+            ],
+            EDIT_REGISTRATION_OPTIONS: [
+                MessageHandler(filters.Regex("^(➕ افزودن گزینه ثبت‌نام|🗑️ حذف گزینه ثبت‌نام|🔙 بازگشت)$"), handle_registration_options_edit),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_registration_option_input)
             ]
         },
         fallbacks=[CommandHandler("admin", admin_login)]
@@ -1337,7 +1543,7 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     
-    # تغییر هندلر متن برای پشتیبانی از کلمات کلیدی
+    # تغییر هندلر متن برای پشتیبانی از کلمات کلیدی و ثبت‌نام
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_messages))
     
     app.add_handler(CallbackQueryHandler(asset_selection_menu, pattern=r"^period\|"))
