@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-load_dotenv(dotenv_path="POLsteratgy.env")
+
 
 import requests
 from telegram import (
@@ -1319,3 +1319,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
