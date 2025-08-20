@@ -5,9 +5,7 @@ import json
 import os
 import asyncio
 import re
-from datetime import datetime, timedelta
-
-
+from datetime import datetime, timedelta, timezone
 
 import requests
 from telegram import (
@@ -39,6 +37,7 @@ CIP_CHANNEL_ID = int(os.environ.get("CIP_CHANNEL_ID", "0"))
 CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@your_channel_username")
 SUPPORT_ID = os.environ.get("SUPPORT_ID", "@Daniyalkhanzadeh")
 GOOGLE_SHEET_URL = os.environ.get("GOOGLE_SHEET_URL", "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec")
+GOOGLE_SHEET_URL_REG = os.environ.get("GOOGLE_SHEET_URL_REG", "https://script.google.com/macros/s/YOUR_REG_SCRIPT_ID/exec")
 TWELVE_API_KEY = os.environ.get("TWELVE_API_KEY", "")
 PORT = int(os.environ.get("PORT", "10000"))
 
@@ -112,11 +111,24 @@ def load_registration_options():
     if os.path.exists(REGISTRATION_OPTIONS_FILE):
         try:
             with open(REGISTRATION_OPTIONS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                content = f.read().strip()
+                if not content:  # اگر فایل خالی است
+                    return []
+                return json.loads(content)
+        except json.JSONDecodeError:
+            logging.error("فایل گزینه‌های ثبت‌نام فرمت JSON معتبر ندارد. ایجاد فایل جدید...")
+            # ایجاد فایل جدید با داده‌های پیش‌فرض
+            default_options = ["دوره آموزشی فارکس", "کارگاه تحلیل تکنیکال", "مشاوره رایگان"]
+            save_registration_options(default_options)
+            return default_options
         except Exception as e:
             logging.error(f"خطا در بارگیری فایل گزینه‌های ثبت‌نام: {e}")
             return []
-    return []
+    else:
+        # اگر فایل وجود ندارد، ایجادش کن با داده‌های پیش‌فرض
+        default_options = ["دوره آموزشی فارکس", "کارگاه تحلیل تکنیکال", "مشاوره رایگان"]
+        save_registration_options(default_options)
+        return default_options
 
 def save_registration_options(options):
     """ذخیره گزینه‌های ثبت‌نام در فایل JSON"""
@@ -192,7 +204,7 @@ async def update_user_in_sheet(user_data):
         return False
 
 async def send_registration_to_sheet(name, phone, reg_option):
-    """ارسال اطلاعات ثبت‌نام به گوگل شیت"""
+    """ارسال اطلاعات ثبت‌نام به Google Sheet مخصوص ثبت‌نام‌ها"""
     try:
         payload = {
             "action": "reg",
@@ -200,8 +212,8 @@ async def send_registration_to_sheet(name, phone, reg_option):
             "phone": phone,
             "reg": reg_option
         }
-        logging.info(f"ارسال داده ثبت‌نام به گوگل شیت: {payload}")
-        response = requests.post(GOOGLE_SHEET_URL, json=payload, timeout=30)
+        logging.info(f"ارسال داده ثبت‌نام به گوگل شیت Reg: {payload}")
+        response = requests.post(GOOGLE_SHEET_URL_REG, json=payload, timeout=30)
         logging.info(f"پاسخ گوگل شیت برای ثبت‌نام: {response.status_code} - {response.text}")
         return response.status_code == 200
     except Exception as e:
@@ -221,7 +233,7 @@ async def get_user_from_sheet(phone):
         else:
             logging.error(f"خطا در دریافت از گوگل شیت: {response.status_code}")
     except Exception as e:
-        logging.error(f"خطا در دریافت اطلاعات از Google Sheet: {e}")
+        logging.error(f"خطا در دریافت اطلاعات Google Sheet: {e}")
     return None
 
 async def sync_user_data(user_id, user_data):
@@ -246,7 +258,7 @@ async def sync_user_data(user_id, user_data):
         if user_data["subscription_start"]:
             try:
                 start_date = datetime.strptime(user_data["subscription_start"], "%Y-%m-%d").date()
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()
                 days_passed = (today - start_date).days
                 user_data["days_left"] = max(0, user_data["subscription_days"] - days_passed)
             except Exception as e:
@@ -354,7 +366,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = {
         "phone": phone,
         "name": full_name,
-        "registered_at": datetime.utcnow().isoformat(),
+        "registered_at": datetime.now(timezone.utc).isoformat(),
         "links": {},
         "alerts": [],
         "watch_assets": [],
@@ -439,7 +451,7 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generate_invite_link(context, chat_id, expire_minutes=10):
     """تولید لینک دعوت با سیستم درخواست عضویت"""
     try:
-        expire_timestamp = int((datetime.utcnow() + timedelta(minutes=expire_minutes)).timestamp())
+        expire_timestamp = int((datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)).timestamp())
         
         res = await context.bot.create_chat_invite_link(
             chat_id=chat_id,
@@ -467,7 +479,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # محدودیت تعداد لینک‌ها
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     links_count = user.get("links", {}).get(today, 0)
     
     if links_count >= MAX_LINKS_PER_DAY:
@@ -513,7 +525,7 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # محدودیت تعداد لینک‌ها
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     links_count = user.get("links", {}).get(today, 0)
     
     if links_count >= MAX_LINKS_PER_DAY:
@@ -532,7 +544,7 @@ async def join_cip_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data[user_id] = user
     save_data(users_data)
     
-    # ارسال لینک به صورت دکته اینلاین
+    # ارسال لینک به صورت دکمه اینلاین
     keyboard = [[InlineKeyboardButton("ورود به کانال CIP", url=invite_link)]]
     await update.message.reply_text(
         f"🌐 لینک دسترسی به کانال CIP (۱۰ دقیقه اعتبار):\n\n"
@@ -693,7 +705,7 @@ async def asset_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {
                     "symbol": symbol,
                     "period": period,
-                    "last_processed": datetime.utcnow().isoformat(),
+                    "last_processed": datetime.now(timezone.utc).isoformat(),
                 }
             )
             save_data(users_data)
@@ -716,7 +728,7 @@ async def analysis_back_to_main(update: Update, context: ContextTypes.DEFAULT_TY
 async def check_subscription_alerts(app):
     """ارسال هشدار به کاربرانی که اشتراکشان در حال اتمام است"""
     global users_data
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     logging.info(f"🔔 شروع بررسی هشدارهای اشتراک در {now}")
     
     for user_id, user in users_data.items():
@@ -946,13 +958,13 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             days = int(value)
             if not user.get("subscription_start") or user.get("days_left", 0) <= 0:
-                user["subscription_start"] = datetime.utcnow().date().isoformat()
+                user["subscription_start"] = datetime.now(timezone.utc).date().isoformat()
             
             user["subscription_days"] = max(0, user.get("subscription_days", 0) + days)
             
             # محاسبه days_left
             start_date = datetime.strptime(user["subscription_start"], "%Y-%m-%d").date()
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             days_passed = (today - start_date).days
             user["days_left"] = max(0, user["subscription_days"] - days_passed)
             
@@ -969,7 +981,7 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user["subscription_start"] = value
             
             start_date = datetime.strptime(value, "%Y-%m-%d").date()
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             days_passed = (today - start_date).days
             user["days_left"] = max(0, user.get("subscription_days", 0) - days_passed)
             
@@ -1022,7 +1034,7 @@ async def handle_discount_value(update: Update, context: ContextTypes.DEFAULT_TY
     
     # لیست دستورات ممنوعه
     forbidden_commands = [
-        "👥 لیست کاربران", "✏️ ویرایش اشترак", "✏️ ویرایش کدهای تخفیف",
+        "👥 لیست کاربران", "✏️ ویرایش اشتراک", "✏️ ویرایش کدهای تخفیف",
         "🔄 همگام‌سازی داده‌ها", "🔙 بازگشت به منو", "📅 افزایش روز اشتراک",
         "🔄 تنظیم تاریخ شروع", "🔛 فعال‌سازی CIP", "📡 فعال‌سازی Hotline",
         "🔘 غیرفعال‌سازی CIP", "📴 غیرفعال‌سازی Hotline", "🔙 بازگشت",
